@@ -23,8 +23,20 @@ import re
 # ---------------------------
 # Configuration
 # ---------------------------
+# For local dev only: load .env (won't hurt on Streamlit but prefer to set secrets there)
 load_dotenv()
-genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
+
+# Prefer Streamlit secrets (set in Cloud UI) — fallback to environment var
+GOOGLE_API_KEY = st.secrets.get("GOOGLE_API_KEY") or os.getenv("GOOGLE_API_KEY")
+
+if not GOOGLE_API_KEY:
+    # Fail fast with a clear message
+    raise RuntimeError(
+        "Google API key not found. Set GOOGLE_API_KEY in Streamlit secrets or in your local .env"
+    )
+
+# Configure the client with the chosen key
+genai.configure(api_key=GOOGLE_API_KEY)
 
 # Preferred model order (fallbacks)
 MODEL_ORDER = [
@@ -673,4 +685,5 @@ def main():
 
 if __name__ == '__main__':
     main()
+
 
