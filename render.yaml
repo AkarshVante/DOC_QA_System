@@ -3,7 +3,7 @@ services:
     name: streamlit-app
     env: python
     repo: https://github.com/<akarshvante>/<DOC_QA_System>
-    branch: main
+    branch: master
     buildCommand: pip install -r requirements.txt
     startCommand: streamlit run app.py --server.port $PORT --server.address 0.0.0.0
     plan: free
