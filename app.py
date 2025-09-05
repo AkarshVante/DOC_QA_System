@@ -390,7 +390,7 @@ def main():
     with left_col:
         st.header("💬 Conversations")
         if not st.session_state.history:
-            st.info("Nomessages yet — your conversation history will appear here.")
+            st.info("No messages yet — your conversation history will appear here.")
         else:
             preview_items = []
             for i, m in enumerate(st.session_state.history):
@@ -685,6 +685,7 @@ def main():
 
 if __name__ == '__main__':
     main()
+
 
 
 
