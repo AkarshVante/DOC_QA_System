@@ -379,8 +379,8 @@ def main():
         st.title("📄 ChatPDF — Plain & Bullets Output")
         st.caption("Upload PDFs, process them and chat — choose Plain or Bullets formatting.")
     with cols[1]:
-        st.metric(label="", value="" if st.session_state.faiss_ready else "No")
-
+        st.metric(label="", value="" if st.session_state.faiss_ready else " ")
+        
     # Layout: Left = Conversations panel, Center = Chat, Right = Index & Controls
     left_col, center_col, right_col = st.columns([1.5, 3, 1])
 
@@ -390,7 +390,7 @@ def main():
     with left_col:
         st.header("💬 Conversations")
         if not st.session_state.history:
-            st.info("Hiimessages yet — your conversation history will appear here.")
+            st.info("Nomessages yet — your conversation history will appear here.")
         else:
             preview_items = []
             for i, m in enumerate(st.session_state.history):
@@ -502,7 +502,7 @@ def main():
                     progress_bar.progress(10)
 
                     if not raw_text.strip():
-                        st.error("Hiireadable text found in the uploaded PDFs.")
+                        st.error("No readable text found in the uploaded PDFs.")
                     else:
                         progress_text.info("Stage 2/3 — Chunking text for embeddings...")
                         text_chunks = get_text_chunks(raw_text)
@@ -541,7 +541,7 @@ def main():
         # Build chat HTML from session_state.history (this reflects any additions made above)
         chat_html = "<div class='chat-window' id='chat-window'>"
         if not st.session_state.history:
-            chat_html += "<div style='padding:20px;color:#6b7280'>Hiimessages yet — upload PDFs and ask a question!</div>"
+            chat_html += "<div style='padding:20px;color:#6b7280'>No messages yet — upload PDFs and ask a question!</div>"
         else:
             for idx, msg in enumerate(st.session_state.history):
                 ts = format_time(msg.get('time',''))
@@ -588,7 +588,7 @@ def main():
         if st.session_state.faiss_ready:
             st.success("FAISS index available.")
         else:
-            st.warning("HiiFAISS index found.")
+            st.warning("No FAISS index found.")
 
         st.markdown("---")
         st.subheader("Reformat Answer")
@@ -666,7 +666,7 @@ def main():
                             else:
                                 st.error(f"Regeneration failed: {error}")
         else:
-            st.info("Hiiassistant message available to regenerate. Send a question first.")
+            st.info("No assistant message available to regenerate. Send a question first.")
 
         st.markdown("---")
         st.subheader("File Uploads")
@@ -685,6 +685,7 @@ def main():
 
 if __name__ == '__main__':
     main()
+
 
 
 
