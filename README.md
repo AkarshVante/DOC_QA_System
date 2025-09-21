@@ -37,9 +37,8 @@ Open `http://localhost:8501` and try uploading a PDF.
 
 ## ✨ Visual preview
 
-![Demo screenshot placeholder](docs/assets/demo_screenshot.png)
+![Demo screenshot placeholder](screenshots/Screenshot_1.jpeg)
 
-*(Replace the image above with `docs/assets/demo.gif` or `screenshots/demo.png` for real visual flair.)*
 
 ---
 
@@ -169,5 +168,3 @@ Ping me via GitHub Issues or email. If you want I can also help add a showcase G
 This project is licensed under the MIT License. See `LICENSE` for details.
 
 ---
-
-*Want it more designer-y? I can export a ready-to-use `docs/screenshots/demo.gif`, commit the README for you, or generate a `CONTRIBUTING.md` and `ISSUE_TEMPLATE`. Pick one and I’ll scaffold it.*
