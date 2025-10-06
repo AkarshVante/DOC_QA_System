@@ -1,9 +1,8 @@
-streamlit
-PyPDF2
-sentence-transformers
-faiss-cpu
-hnswlib
-transformers
-torch
-langchain
-langchain-google-genai
+streamlit>=1.20.0
+PyPDF2>=3.0.0
+sentence-transformers>=2.2.0
+transformers>=4.30.0
+torch>=1.13.0
+hnswlib==0.7.0
+langchain>=0.3.0
+langchain-google-genai>=2.0.0
