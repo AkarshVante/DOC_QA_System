@@ -83,18 +83,23 @@ def get_text_chunks(text):
     return text_splitter.split_text(text)
 
 
+HNSW_DIR = "hnsw_index"  # new directory for HNSW files
+
 def get_vector_store(text_chunks, progress_callback=None):
     """
-    Build embeddings using the LocalEmbeddings wrapper and create/save a FAISS index.
+    Build embeddings using LocalEmbeddings (or your chosen embeddings object)
+    and create/save an HNSWLib index.
     """
-    embeddings = LocalEmbeddings()  # <--- local open-source embeddings
+    embeddings = LocalEmbeddings()  # or GoogleGenerativeAIEmbeddings if you revert
     if progress_callback:
-        progress_callback("Embedding texts and building FAISS index (local model)...")
-    # FAISS.from_texts expects an embeddings object with embed_documents
-    vector_store = FAISS.from_texts(text_chunks, embedding=embeddings)
-    vector_store.save_local(FAISS_DIR)
+        progress_callback("Embedding texts and building HNSW index (local model)...")
+
+    # HNSWLib.from_texts expects an 'embeddings' object with embed_documents method
+    index = HNSWLib.from_texts(texts=text_chunks, embedding=embeddings, space='cosine')
+    index.save_local(HNSW_DIR)
+
     if progress_callback:
-        progress_callback("Saved FAISS index to disk.")
+        progress_callback("Saved HNSW index to disk.")
 
 # ---------------------------
 # Prompt builders (Plain / Bullets)
@@ -641,9 +646,9 @@ def main():
                         st.error("Could not locate the original user question to regenerate.")
                     else:
                         try:
-                            embeddings = LocalEmbeddings()
-                            new_db = FAISS.load_local(FAISS_DIR, embeddings, allow_dangerous_deserialization=True)
-                            docs = new_db.similarity_search(user_q, k=4)
+                            embeddings = LocalEmbeddings()  # same wrapper you used to create the index
+                            new_db = HNSWLib.load_local(HNSW_DIR, embeddings)
+                            docs = new_db.similarity_search(user_question, k=4)
                         except Exception as e:
                             st.error(f"Failed to load FAISS index: {e}")
                             docs = []
@@ -704,4 +709,5 @@ def main():
 
 if __name__ == '__main__':
     main()
+
 
