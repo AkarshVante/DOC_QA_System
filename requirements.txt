@@ -16,8 +16,8 @@ torch>=1.13.0
 # Transformers (backend used by sentence-transformers)
 transformers>=4.30.0
 
-# FAISS (CPU). If pip wheel fails on your host, see notes below.
-faiss-cpu==1.7.2
+# Replace FAISS with HNSWLib (lighter, pip-install-friendly)
+hnswlib==0.7.0
 
 # PDF and environment
 PyPDF2==3.0.1
@@ -25,3 +25,4 @@ python-dotenv==1.0.0
 
 # Optional: helpful small utilities
 tqdm>=4.65.0
+
