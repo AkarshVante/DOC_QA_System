@@ -30,7 +30,7 @@ HF_FALLBACK_MODEL = "google/flan-t5-small"
 # ---------------------------
 # Config
 # ---------------------------
-st.set_page_config(page_title="ChatPDF", layout="wide", initial_sidebar_state="collapsed")
+st.set_page_config(page_title="ChatPDF", layout="wide", initial_sidebar_state="expanded")
 EMBEDDING_MODEL_NAME = "all-MiniLM-L6-v2"
 HNSW_DIR = "hnsw_index"
 CHUNK_SIZE = 1000
@@ -472,19 +472,21 @@ def main():
     
     # Sidebar for PDF Upload
     with st.sidebar:
-        st.markdown("### 📄 Document Management")
+        st.markdown("## 📄 Documents")
+        st.markdown("")
         
         # Status indicator
         if st.session_state.hnsw_ready:
             st.markdown('<div class="status-badge status-ready">✓ Documents Ready</div>', unsafe_allow_html=True)
         else:
-            st.markdown('<div class="status-badge status-not-ready">⚠ No Documents</div>', unsafe_allow_html=True)
+            st.markdown('<div class="status-badge status-not-ready">⚠ Upload PDFs to Start</div>', unsafe_allow_html=True)
         
         st.markdown("---")
         
         # File upload section
+        st.markdown("#### 📤 Upload PDFs")
         uploaded_files = st.file_uploader(
-            "Upload PDF files",
+            "Choose PDF files",
             accept_multiple_files=True,
             type=['pdf'],
             help="Upload one or more PDF files to chat with"
@@ -547,8 +549,10 @@ def main():
         <div class='welcome-container'>
             <div class='welcome-title'>👋 Welcome to ChatPDF</div>
             <div class='welcome-text'>
-                Upload your PDF documents using the sidebar, then ask me anything about them.
-                I'll provide clear, accurate answers based on your documents.
+                <strong>Get started:</strong><br>
+                1. Use the sidebar (←) to upload your PDF documents<br>
+                2. Click "Process Documents" to index them<br>
+                3. Ask me anything about your documents!
             </div>
         </div>
         """, unsafe_allow_html=True)
