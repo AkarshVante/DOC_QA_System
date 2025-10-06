@@ -259,6 +259,39 @@ def init_session_state():
 # ---------------------------
 MODERN_CSS = """
 <style>
+        /* Sidebar Text Color - FIXED */
+        [data-testid="stSidebar"] * {
+            color: #353740;
+        }
+        
+        /* Sidebar Markdown Text - FIXED */
+        [data-testid="stSidebar"] .stMarkdown {
+            color: #353740;
+        }
+        
+        /* Sidebar Headers - FIXED */
+        [data-testid="stSidebar"] h1,
+        [data-testid="stSidebar"] h2,
+        [data-testid="stSidebar"] h3,
+        [data-testid="stSidebar"] h4 {
+            color: #353740;
+            font-weight: 600;
+        }
+        
+        /* Sidebar Regular Text - FIXED */
+        [data-testid="stSidebar"] p,
+        [data-testid="stSidebar"] span,
+        [data-testid="stSidebar"] label {
+            color: #353740;
+        }
+        
+        /* File Uploader Text - FIXED */
+        [data-testid="stFileUploader"] label,
+        [data-testid="stFileUploader"] span,
+        [data-testid="stFileUploader"] p {
+            color: #353740 !important;
+        }
+
     /* Import Google Font */
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
     
@@ -710,3 +743,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
