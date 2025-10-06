@@ -18,8 +18,21 @@ USE_GOOGLE = False
 GOOGLE_API_KEY = st.secrets.get("GOOGLE_API_KEY", None) or os.getenv("GOOGLE_API_KEY")
 if GOOGLE_API_KEY:
     from langchain_google_genai import ChatGoogleGenerativeAI
+    
     # Initialize Google Gemini model via LangChain
-    chat_model = ChatGoogleGenerativeAI(api_key=GOOGLE_API_KEY, model="gemini-1.5-pro", temperature=0.7)
+    
+    try:
+    chat_model = ChatGoogleGenerativeAI(
+        model="gemini-1.5-flash",
+        google_api_key=GOOGLE_API_KEY,
+        temperature=0.5
+    )
+except Exception:
+    chat_model = ChatGoogleGenerativeAI(
+        model="gemini-1.5-flash-8b",
+        google_api_key=GOOGLE_API_KEY,
+        temperature=0.5
+    )
     USE_GOOGLE = True
 else:
     # Fallback to HuggingFace pipeline (e.g. Flan-T5 base)
@@ -106,5 +119,6 @@ if question:
         for i, (q, a) in enumerate(st.session_state['history']):
             st.markdown(f"**Q{i+1}:** {q}")
             st.markdown(f"**A{i+1}:** {a}")
+
 
 
