@@ -1,3 +1,4 @@
+# chatpdf_gemini2_upgrade.py
 import streamlit as st
 from PyPDF2 import PdfReader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
@@ -21,6 +22,13 @@ import html as html_module
 import re
 
 # ---------------------------
+# NOTE: Quick migration notes
+# - Preferred model IDs for Gemini 2.0: "gemini-2.0-flash-lite" and "gemini-2.0-flash".
+#   There are also variant names with "-001" suffixes (e.g. "gemini-2.0-flash-lite-001") in some UIs/APIs.
+# - Ensure langchain_google_genai / google.generativeai are updated to versions that support Gemini 2.0 model ids.
+# ---------------------------
+
+# ---------------------------
 # Configuration
 # ---------------------------
 # For local dev only: load .env (won't hurt on Streamlit but prefer to set secrets there)
@@ -38,12 +46,18 @@ if not GOOGLE_API_KEY:
 # Configure the client with the chosen key
 genai.configure(api_key=GOOGLE_API_KEY)
 
-# Preferred model order (fallbacks)
+# Preferred model order (fallbacks) — migrated to Gemini 2.0 Flash family
 MODEL_ORDER = [
-    "gemini-1.5-flash",
-    "gemini-1.5-pro",
-    "gemini-1.0-pro"
+    # Prefer the low-latency, cost-efficient Flash-Lite first
+    "gemini-2.0-flash-lite",
+    # Then try full Flash (higher quality / features if needed)
+    "gemini-2.0-flash",
+    # Keep an older fallback if you still want to fall back to 1.5 family
+    "gemini-1.5-pro"
 ]
+
+# If you prefer explicit stable variants you can use:
+# MODEL_ORDER = ["gemini-2.0-flash-lite-001", "gemini-2.0-flash-001", "gemini-1.5-pro"]
 
 EMBEDDING_MODEL = "models/embedding-001"
 FAISS_DIR = "faiss_index"
@@ -141,6 +155,7 @@ def generate_answer_with_fallback_using_prompt(prompt_template: PromptTemplate, 
     """
     for model_name in MODEL_ORDER:
         try:
+            # instantiate ChatGoogleGenerativeAI with the model name
             model = ChatGoogleGenerativeAI(model=model_name, temperature=0.2)
             chain = load_qa_chain(model, chain_type="stuff", prompt=prompt_template)
 
@@ -370,13 +385,13 @@ def find_preceding_user_message_text(idx):
 # ---------------------------
 
 def main():
-    st.set_page_config(page_title="ChatPDF — Gemini", layout="wide")
+    st.set_page_config(page_title="ChatPDF — Gemini 2.0", layout="wide")
     init_session_state()
 
     # Header
     cols = st.columns([0.75, 0.25])
     with cols[0]:
-        st.title("📄 ChatPDF — Plain & Bullets Output")
+        st.title("📄 ChatPDF — Gemini 2.0 (Flash-Lite / Flash)")
         st.caption("Upload PDFs, process them and chat — choose Plain or Bullets formatting.")
     with cols[1]:
         st.metric(label="", value="" if st.session_state.faiss_ready else " ")
@@ -685,8 +700,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
-
-
-
-
