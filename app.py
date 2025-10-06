@@ -1,3 +1,4 @@
+
 # app.py
 import os
 import time
@@ -440,7 +441,7 @@ MODERN_CSS = """
     
     /* Title */
     h1 {
-        color: #353740;
+        color: #10a37f; 
         font-weight: 600;
         font-size: 32px;
         margin-bottom: 8px;
@@ -743,4 +744,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
