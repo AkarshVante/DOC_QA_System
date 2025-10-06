@@ -24,7 +24,7 @@ if GOOGLE_API_KEY:
 else:
     # Fallback to HuggingFace pipeline (e.g. Flan-T5 base)
     from transformers import pipeline
-    chat_model = pipeline("text2text-generation", model="google/flan-t5-base")
+    chat_model = pipeline("text2text-generation", model="google/flan-t5-base", device=-1)
 
 # Initialize embedding model (SentenceTransformer)
 embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
@@ -106,4 +106,5 @@ if question:
         for i, (q, a) in enumerate(st.session_state['history']):
             st.markdown(f"**Q{i+1}:** {q}")
             st.markdown(f"**A{i+1}:** {a}")
+
 
