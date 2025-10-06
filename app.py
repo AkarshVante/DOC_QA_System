@@ -28,30 +28,6 @@ except Exception:
 from transformers import pipeline
 HF_FALLBACK_MODEL = "google/flan-t5-small"
 
-# At the top of your main() function, after imports
-def main():
-    # Initialize sidebar state
-    if "sidebar_state" not in st.session_state:
-        st.session_state.sidebar_state = "expanded"
-    
-    st.set_page_config(
-        page_title="ChatPDF",
-        layout="wide",
-        initial_sidebar_state=st.session_state.sidebar_state
-    )
-    
-    st.markdown(MODERN_CSS, unsafe_allow_html=True)
-    init_session_state()
-    
-    # Add a button to toggle sidebar in your sidebar code
-    with st.sidebar:
-        if st.button("☰ Toggle Sidebar"):
-            st.session_state.sidebar_state = (
-                "collapsed" if st.session_state.sidebar_state == "expanded" 
-                else "expanded"
-            )
-            st.rerun()
-
 # ---------------------------
 # Config
 # ---------------------------
@@ -284,39 +260,6 @@ def init_session_state():
 # ---------------------------
 MODERN_CSS = """
 <style>
-        /* Sidebar Text Color - FIXED */
-        [data-testid="stSidebar"] * {
-            color: #353740;
-        }
-        
-        /* Sidebar Markdown Text - FIXED */
-        [data-testid="stSidebar"] .stMarkdown {
-            color: #353740;
-        }
-        
-        /* Sidebar Headers - FIXED */
-        [data-testid="stSidebar"] h1,
-        [data-testid="stSidebar"] h2,
-        [data-testid="stSidebar"] h3,
-        [data-testid="stSidebar"] h4 {
-            color: #353740;
-            font-weight: 600;
-        }
-        
-        /* Sidebar Regular Text - FIXED */
-        [data-testid="stSidebar"] p,
-        [data-testid="stSidebar"] span,
-        [data-testid="stSidebar"] label {
-            color: #353740;
-        }
-        
-        /* File Uploader Text - FIXED */
-        [data-testid="stFileUploader"] label,
-        [data-testid="stFileUploader"] span,
-        [data-testid="stFileUploader"] p {
-            color: #353740 !important;
-        }
-
     /* Import Google Font */
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
     
@@ -330,10 +273,81 @@ MODERN_CSS = """
         background: #f7f7f8;
     }
     
-    /* Sidebar */
+    /* ========================================
+       SIDEBAR - COMPLETE FIX FOR VISIBILITY
+       ======================================== */
     [data-testid="stSidebar"] {
-        background: #ffffff;
+        background: #ffffff !important;
         border-right: 1px solid #e5e5e5;
+        display: block !important;
+        visibility: visible !important;
+        min-width: 21rem;
+        max-width: 21rem;
+    }
+    
+    /* ALL Sidebar Text - Make it Dark and Visible */
+    [data-testid="stSidebar"] *,
+    [data-testid="stSidebar"] p,
+    [data-testid="stSidebar"] span,
+    [data-testid="stSidebar"] div,
+    [data-testid="stSidebar"] label,
+    [data-testid="stSidebar"] h1,
+    [data-testid="stSidebar"] h2,
+    [data-testid="stSidebar"] h3,
+    [data-testid="stSidebar"] h4 {
+        color: #353740 !important;
+    }
+    
+    /* Sidebar Markdown */
+    [data-testid="stSidebar"] .stMarkdown {
+        color: #353740 !important;
+    }
+    
+    /* File Uploader Text */
+    [data-testid="stFileUploader"] *,
+    [data-testid="stFileUploader"] label,
+    [data-testid="stFileUploader"] span,
+    [data-testid="stFileUploader"] p,
+    .uploadedFileName {
+        color: #353740 !important;
+    }
+    
+    /* Sidebar Buttons - Keep White Text */
+    [data-testid="stSidebar"] button {
+        color: white !important;
+    }
+    
+    /* Make sure sidebar toggle button is visible */
+    [data-testid="collapsedControl"] {
+        display: block !important;
+        visibility: visible !important;
+        color: #10a37f;
+        background: #ffffff;
+        border: 1px solid #e5e5e5;
+        border-radius: 8px;
+        padding: 8px;
+    }
+    
+    /* Ensure sidebar stays expanded */
+    [data-testid="stSidebar"][aria-expanded="true"] {
+        display: block !important;
+        min-width: 21rem;
+        max-width: 21rem;
+    }
+    
+    /* Mobile: Make sidebar accessible */
+    @media (max-width: 768px) {
+        [data-testid="stSidebar"] {
+            display: block !important;
+            visibility: visible !important;
+            width: 85vw;
+            max-width: 300px;
+        }
+        
+        [data-testid="collapsedControl"] {
+            background: #10a37f;
+            border-radius: 8px;
+        }
     }
     
     /* Hide Streamlit branding */
@@ -417,6 +431,7 @@ MODERN_CSS = """
         padding: 12px 16px;
         font-size: 15px;
         resize: none;
+        color: #353740;
     }
     
     .stTextArea textarea:focus {
@@ -461,14 +476,12 @@ MODERN_CSS = """
         border-radius: 8px;
         padding: 12px;
         font-weight: 500;
+        color: #353740;
     }
     
-    /* Title */
+    /* Title - UPDATED COLOR */
     h1 {
-        background: linear-gradient(135deg, #10a37f 0%, #19c37d 100%);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        background-clip: text;
+        color: #0d8a6a;
         font-weight: 600;
         font-size: 32px;
         margin-bottom: 8px;
@@ -524,22 +537,9 @@ MODERN_CSS = """
         color: #d63;
         border: 2px solid #faa;
     }
-    /* Mobile sidebar improvements */
-@media (max-width: 768px) {
-    [data-testid="stSidebar"] {
-        width: 85vw;
-        max-width: 300px;
-    }
-    
-    /* Make toggle button more visible */
-    [data-testid="collapsedControl"] {
-        background: #10a37f;
-        border-radius: 8px;
-    }
-}
-
 </style>
 """
+
 
 # ---------------------------
 # Main App
