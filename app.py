@@ -23,13 +23,13 @@ if GOOGLE_API_KEY:
     
     try:
         chat_model = ChatGoogleGenerativeAI(
-            model="gemini-1.5-flash",
+            model="gemini-2.0-flash",
             google_api_key=GOOGLE_API_KEY,
             temperature=0.5
         )
     except Exception:
         chat_model = ChatGoogleGenerativeAI(
-            model="gemini-1.5-flash-8b",
+            model="gemini-2.0-flash-lite",
             google_api_key=GOOGLE_API_KEY,
             temperature=0.5
         )
@@ -119,6 +119,7 @@ if question:
         for i, (q, a) in enumerate(st.session_state['history']):
             st.markdown(f"**Q{i+1}:** {q}")
             st.markdown(f"**A{i+1}:** {a}")
+
 
 
 
