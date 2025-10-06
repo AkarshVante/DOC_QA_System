@@ -444,21 +444,24 @@ MODERN_CSS = """
     /* Status Badge */
     .status-badge {
         display: inline-block;
-        padding: 6px 12px;
+        padding: 8px 16px;
         border-radius: 20px;
-        font-size: 13px;
-        font-weight: 500;
+        font-size: 14px;
+        font-weight: 600;
         margin: 8px 0;
+        text-align: center;
     }
     
     .status-ready {
         background: #d1f4e0;
         color: #0d8a6a;
+        border: 2px solid #10a37f;
     }
     
     .status-not-ready {
         background: #fee;
-        color: #e11;
+        color: #d63;
+        border: 2px solid #faa;
     }
 </style>
 """
@@ -492,28 +495,62 @@ def main():
             help="Upload one or more PDF files to chat with"
         )
         
+        # Show uploaded file names
+        if uploaded_files:
+            st.markdown("**Uploaded files:**")
+            for file in uploaded_files:
+                st.text(f"📄 {file.name}")
+            st.markdown("")
+        
         if uploaded_files:
             if st.button("🔄 Process Documents", use_container_width=True):
-                with st.spinner("Processing documents..."):
+                progress_bar = st.progress(0)
+                status_text = st.empty()
+                
+                try:
                     # Extract text
+                    status_text.text("📖 Reading PDF files...")
+                    progress_bar.progress(20)
                     raw_text = get_pdf_text(uploaded_files)
                     
                     if not raw_text.strip():
-                        st.error("No readable text found in PDFs")
+                        st.error("❌ No readable text found in PDFs")
                     else:
                         # Create chunks
+                        status_text.text("✂️ Splitting text into chunks...")
+                        progress_bar.progress(40)
                         text_chunks = get_text_chunks(raw_text)
                         
                         # Build index
-                        try:
-                            embeddings = LocalEmbeddings()
-                            index = LocalHNSW.from_texts(text_chunks, embedding=embeddings, space='cosine')
-                            index.save_local(HNSW_DIR)
-                            st.session_state.hnsw_ready = True
-                            st.success(f"✓ Processed {len(text_chunks)} text chunks!")
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"Error: {e}")
+                        status_text.text("🔍 Building search index...")
+                        progress_bar.progress(60)
+                        
+                        embeddings = LocalEmbeddings()
+                        index = LocalHNSW.from_texts(text_chunks, embedding=embeddings, space='cosine')
+                        
+                        status_text.text("💾 Saving index...")
+                        progress_bar.progress(80)
+                        index.save_local(HNSW_DIR)
+                        
+                        progress_bar.progress(100)
+                        st.session_state.hnsw_ready = True
+                        
+                        status_text.empty()
+                        progress_bar.empty()
+                        st.success(f"✅ Successfully processed {len(text_chunks)} text chunks from {len(uploaded_files)} file(s)!")
+                        time.sleep(1)
+                        st.rerun()
+                        
+                except Exception as e:
+                    st.error(f"❌ Error processing documents: {str(e)}")
+                    progress_bar.empty()
+                    status_text.empty()
+        
+        st.markdown("---")
+        
+        # Chat info
+        if st.session_state.messages:
+            st.markdown(f"**💬 Messages:** {len(st.session_state.messages)}")
         
         st.markdown("---")
         
@@ -545,20 +582,31 @@ def main():
     
     # Display messages or welcome screen
     if not st.session_state.messages:
-        st.markdown("""
-        <div class='welcome-container'>
-            <div class='welcome-title'>👋 Welcome to ChatPDF</div>
-            <div class='welcome-text'>
-                <strong>Get started:</strong><br>
-                1. Use the sidebar (←) to upload your PDF documents<br>
-                2. Click "Process Documents" to index them<br>
-                3. Ask me anything about your documents!
+        if st.session_state.hnsw_ready:
+            st.markdown("""
+            <div class='welcome-container'>
+                <div class='welcome-title'>✅ Ready to Chat!</div>
+                <div class='welcome-text'>
+                    Your documents are processed and ready.<br>
+                    Ask me anything about your PDFs below!
+                </div>
             </div>
-        </div>
-        """, unsafe_allow_html=True)
+            """, unsafe_allow_html=True)
+        else:
+            st.markdown("""
+            <div class='welcome-container'>
+                <div class='welcome-title'>👋 Welcome to ChatPDF</div>
+                <div class='welcome-text'>
+                    <strong>Get started:</strong><br>
+                    1. Use the sidebar (←) to upload your PDF documents<br>
+                    2. Click "Process Documents" to index them<br>
+                    3. Ask me anything about your documents!
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
     else:
         # Display chat history
-        for msg in st.session_state.messages:
+        for idx, msg in enumerate(st.session_state.messages):
             role = msg["role"]
             content = msg["content"]
             
@@ -570,8 +618,8 @@ def main():
                 </div>
                 """, unsafe_allow_html=True)
             else:
-                # Convert newlines to HTML breaks for assistant messages
-                formatted_content = content.replace("\n", "<br>")
+                # For assistant, show content with proper formatting
+                formatted_content = html_module.escape(content).replace("\n", "<br>")
                 st.markdown(f"""
                 <div class='message assistant'>
                     <div class='avatar'>AI</div>
@@ -582,7 +630,7 @@ def main():
     st.markdown("</div>", unsafe_allow_html=True)
     
     # Input area at the bottom
-    st.markdown("<br><br>", unsafe_allow_html=True)
+    st.markdown("<br>", unsafe_allow_html=True)
     
     # Create input form
     with st.form(key="chat_form", clear_on_submit=True):
@@ -591,19 +639,25 @@ def main():
         with col1:
             user_input = st.text_area(
                 "Message",
-                placeholder="Ask a question about your documents...",
-                height=80,
+                placeholder="Ask a question about your documents... (Ctrl+Enter to send)" if st.session_state.hnsw_ready else "Upload and process PDFs first...",
+                height=100,
                 label_visibility="collapsed",
-                key="user_input"
+                key="user_input",
+                disabled=not st.session_state.hnsw_ready
             )
         
         with col2:
             st.markdown("<br>", unsafe_allow_html=True)
-            submit = st.form_submit_button("Send", use_container_width=True)
+            submit_disabled = not st.session_state.hnsw_ready
+            submit = st.form_submit_button(
+                "Send" if st.session_state.hnsw_ready else "📄 Upload PDFs First",
+                use_container_width=True,
+                disabled=submit_disabled
+            )
         
         if submit and user_input and user_input.strip():
             if not st.session_state.hnsw_ready:
-                st.error("Please upload and process PDF documents first!")
+                st.error("⚠️ Please upload and process PDF documents first!")
             else:
                 # Add user message
                 st.session_state.messages.append({
@@ -611,17 +665,21 @@ def main():
                     "content": user_input.strip()
                 })
                 
-                # Retrieve relevant documents
-                try:
-                    embeddings = LocalEmbeddings()
-                    db = LocalHNSW.load_local(HNSW_DIR, embedding=embeddings)
-                    docs = db.similarity_search(user_input, k=RETRIEVE_K, embedding=embeddings)
-                except Exception as e:
-                    st.error(f"Error loading index: {e}")
-                    docs = []
-                
-                if docs:
-                    with st.spinner("Thinking..."):
+                # Show thinking indicator
+                with st.spinner("🤔 Searching documents and generating answer..."):
+                    # Retrieve relevant documents
+                    try:
+                        embeddings = LocalEmbeddings()
+                        db = LocalHNSW.load_local(HNSW_DIR, embedding=embeddings)
+                        docs = db.similarity_search(user_input, k=RETRIEVE_K, embedding=embeddings)
+                    except Exception as e:
+                        st.session_state.messages.append({
+                            "role": "assistant",
+                            "content": f"Error loading documents: {str(e)}"
+                        })
+                        st.rerun()
+                    
+                    if docs:
                         prompt_template = build_unified_prompt()
                         google_api_key = st.secrets.get("GOOGLE_API_KEY") if "GOOGLE_API_KEY" in st.secrets else os.getenv("GOOGLE_API_KEY")
                         answer, model_used, error = generate_answer(
@@ -630,17 +688,25 @@ def main():
                             user_input,
                             google_api_key=google_api_key
                         )
-                    
-                    if answer:
+                        
+                        if answer:
+                            st.session_state.messages.append({
+                                "role": "assistant",
+                                "content": answer
+                            })
+                        else:
+                            st.session_state.messages.append({
+                                "role": "assistant",
+                                "content": f"I couldn't generate an answer. Error: {error if error else 'Unknown error'}"
+                            })
+                    else:
                         st.session_state.messages.append({
                             "role": "assistant",
-                            "content": answer
+                            "content": "I couldn't find any relevant information in the documents to answer your question."
                         })
-                        st.rerun()
-                    else:
-                        st.error(f"Failed to generate answer: {error}")
-                else:
-                    st.error("No relevant information found in documents")
+                
+                # Rerun to display new messages
+                st.rerun()
 
 if __name__ == "__main__":
     main()
