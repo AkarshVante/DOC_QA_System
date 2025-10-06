@@ -22,17 +22,17 @@ if GOOGLE_API_KEY:
     # Initialize Google Gemini model via LangChain
     
     try:
-    chat_model = ChatGoogleGenerativeAI(
-        model="gemini-1.5-flash",
-        google_api_key=GOOGLE_API_KEY,
-        temperature=0.5
-    )
-except Exception:
-    chat_model = ChatGoogleGenerativeAI(
-        model="gemini-1.5-flash-8b",
-        google_api_key=GOOGLE_API_KEY,
-        temperature=0.5
-    )
+        chat_model = ChatGoogleGenerativeAI(
+            model="gemini-1.5-flash",
+            google_api_key=GOOGLE_API_KEY,
+            temperature=0.5
+        )
+    except Exception:
+        chat_model = ChatGoogleGenerativeAI(
+            model="gemini-1.5-flash-8b",
+            google_api_key=GOOGLE_API_KEY,
+            temperature=0.5
+        )
     USE_GOOGLE = True
 else:
     # Fallback to HuggingFace pipeline (e.g. Flan-T5 base)
@@ -119,6 +119,7 @@ if question:
         for i, (q, a) in enumerate(st.session_state['history']):
             st.markdown(f"**Q{i+1}:** {q}")
             st.markdown(f"**A{i+1}:** {a}")
+
 
 
 
