@@ -441,7 +441,10 @@ MODERN_CSS = """
     
     /* Title */
     h1 {
-        color: #10a37f; 
+        background: linear-gradient(135deg, #10a37f 0%, #19c37d 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
         font-weight: 600;
         font-size: 32px;
         margin-bottom: 8px;
@@ -744,5 +747,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
