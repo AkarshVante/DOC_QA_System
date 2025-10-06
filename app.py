@@ -1,9 +1,9 @@
-# chatpdf_gemini2_upgrade.py
+# chatpdf_local_embeddings.py
 import streamlit as st
 from PyPDF2 import PdfReader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 import os
-from langchain_google_genai import GoogleGenerativeAIEmbeddings
+# removed: from langchain_google_genai import GoogleGenerativeAIEmbeddings
 import google.generativeai as genai
 
 # from langchain.vectorstores import FAISS
@@ -21,45 +21,34 @@ import streamlit.components.v1 as components
 import html as html_module
 import re
 
-# ---------------------------
-# NOTE: Quick migration notes
-# - Preferred model IDs for Gemini 2.0: "gemini-2.0-flash-lite" and "gemini-2.0-flash".
-#   There are also variant names with "-001" suffixes (e.g. "gemini-2.0-flash-lite-001") in some UIs/APIs.
-# - Ensure langchain_google_genai / google.generativeai are updated to versions that support Gemini 2.0 model ids.
-# ---------------------------
+# NEW: open-source embedding model (sentence-transformers)
+from sentence_transformers import SentenceTransformer
 
 # ---------------------------
-# Configuration
+# Local embedding wrapper for LangChain/FAISS compatibility
 # ---------------------------
-# For local dev only: load .env (won't hurt on Streamlit but prefer to set secrets there)
-load_dotenv()
+class LocalEmbeddings:
+    """
+    Minimal wrapper exposing embed_documents and embed_query so it can be
+    passed into FAISS.from_texts and FAISS.load_local as the 'embeddings' object.
+    Uses sentence-transformers under the hood.
+    """
+    def __init__(self, model_name: str = "all-MiniLM-L6-v2"):
+        self.model = SentenceTransformer(model_name)
 
-# Prefer Streamlit secrets (set in Cloud UI) — fallback to environment var
-GOOGLE_API_KEY = st.secrets.get("GOOGLE_API_KEY") or os.getenv("GOOGLE_API_KEY")
+    def embed_documents(self, texts):
+        # returns a list of list[float]
+        vectors = self.model.encode(texts, show_progress_bar=False)
+        return [vector.tolist() if hasattr(vector, "tolist") else list(map(float, vector)) for vector in vectors]
 
-if not GOOGLE_API_KEY:
-    # Fail fast with a clear message
-    raise RuntimeError(
-        "Google API key not found. Set GOOGLE_API_KEY in Streamlit secrets or in your local .env"
-    )
+    def embed_query(self, text):
+        vector = self.model.encode([text], show_progress_bar=False)[0]
+        return vector.tolist() if hasattr(vector, "tolist") else list(map(float, vector))
 
-# Configure the client with the chosen key
-genai.configure(api_key=GOOGLE_API_KEY)
+# ---------------------------
+# NOTE: If you previously had EMBEDDING_MODEL config for Gemini, you can ignore it now.
+# ---------------------------
 
-# Preferred model order (fallbacks) — migrated to Gemini 2.0 Flash family
-MODEL_ORDER = [
-    # Prefer the low-latency, cost-efficient Flash-Lite first
-    "gemini-2.0-flash-lite",
-    # Then try full Flash (higher quality / features if needed)
-    "gemini-2.0-flash",
-    # Keep an older fallback if you still want to fall back to 1.5 family
-    "gemini-1.5-pro"
-]
-
-# If you prefer explicit stable variants you can use:
-# MODEL_ORDER = ["gemini-2.0-flash-lite-001", "gemini-2.0-flash-001", "gemini-1.5-pro"]
-
-EMBEDDING_MODEL = "models/embedding-001"
 FAISS_DIR = "faiss_index"
 
 # ---------------------------
@@ -92,9 +81,13 @@ def get_text_chunks(text):
 
 
 def get_vector_store(text_chunks, progress_callback=None):
-    embeddings = GoogleGenerativeAIEmbeddings(model=EMBEDDING_MODEL)
+    """
+    Build embeddings using the LocalEmbeddings wrapper and create/save a FAISS index.
+    """
+    embeddings = LocalEmbeddings()  # <--- local open-source embeddings
     if progress_callback:
-        progress_callback("Embedding texts and building FAISS index...")
+        progress_callback("Embedding texts and building FAISS index (local model)...")
+    # FAISS.from_texts expects an embeddings object with embed_documents
     vector_store = FAISS.from_texts(text_chunks, embedding=embeddings)
     vector_store.save_local(FAISS_DIR)
     if progress_callback:
@@ -145,6 +138,15 @@ Question:
     return PromptTemplate(template=template, input_variables=["context", "question"])
 
 # ---------------------------
+# Preferred model order for chat (Gemini 2.0 if available; unchanged)
+# ---------------------------
+MODEL_ORDER = [
+    "gemini-2.0-flash-lite",
+    "gemini-2.0-flash",
+    "gemini-1.5-pro"
+]
+
+# ---------------------------
 # QA + Model fallback (generalized to accept a prompt_template)
 # ---------------------------
 
@@ -155,7 +157,6 @@ def generate_answer_with_fallback_using_prompt(prompt_template: PromptTemplate, 
     """
     for model_name in MODEL_ORDER:
         try:
-            # instantiate ChatGoogleGenerativeAI with the model name
             model = ChatGoogleGenerativeAI(model=model_name, temperature=0.2)
             chain = load_qa_chain(model, chain_type="stuff", prompt=prompt_template)
 
@@ -385,13 +386,13 @@ def find_preceding_user_message_text(idx):
 # ---------------------------
 
 def main():
-    st.set_page_config(page_title="ChatPDF — Gemini 2.0", layout="wide")
+    st.set_page_config(page_title="ChatPDF — Local Embeddings", layout="wide")
     init_session_state()
 
     # Header
     cols = st.columns([0.75, 0.25])
     with cols[0]:
-        st.title("📄 ChatPDF — Gemini 2.0 (Flash-Lite / Flash)")
+        st.title("📄 ChatPDF — Local Embeddings (sentence-transformers)")
         st.caption("Upload PDFs, process them and chat — choose Plain or Bullets formatting.")
     with cols[1]:
         st.metric(label="", value="" if st.session_state.faiss_ready else " ")
@@ -476,7 +477,7 @@ def main():
                     # Add user message then generate based on chosen style
                     add_message('user', user_question)
                     try:
-                        embeddings = GoogleGenerativeAIEmbeddings(model=EMBEDDING_MODEL)
+                        embeddings = LocalEmbeddings()
                         new_db = FAISS.load_local(FAISS_DIR, embeddings, allow_dangerous_deserialization=True)
                         docs = new_db.similarity_search(user_question, k=4)
                     except Exception as e:
@@ -637,7 +638,7 @@ def main():
                         st.error("Could not locate the original user question to regenerate.")
                     else:
                         try:
-                            embeddings = GoogleGenerativeAIEmbeddings(model=EMBEDDING_MODEL)
+                            embeddings = LocalEmbeddings()
                             new_db = FAISS.load_local(FAISS_DIR, embeddings, allow_dangerous_deserialization=True)
                             docs = new_db.similarity_search(user_q, k=4)
                         except Exception as e:
@@ -662,7 +663,7 @@ def main():
                         st.error("Could not locate the original user question to regenerate.")
                     else:
                         try:
-                            embeddings = GoogleGenerativeAIEmbeddings(model=EMBEDDING_MODEL)
+                            embeddings = LocalEmbeddings()
                             new_db = FAISS.load_local(FAISS_DIR, embeddings, allow_dangerous_deserialization=True)
                             docs = new_db.similarity_search(user_q, k=4)
                         except Exception as e:
