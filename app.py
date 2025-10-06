@@ -195,20 +195,40 @@ Question:
     return PromptTemplate(template=template, input_variables=["context", "question"])
 
 def build_bullets_prompt():
+    """
+    Strong formatting instructions so the model returns clean markdown.
+    Output must be ONLY markdown. Do NOT include any metadata, explanation about
+    the prompt, or any additional commentary. Follow the exact structure below.
+
+    - First line: single concise answer (one sentence).
+    - Then a blank line.
+    - Then a section "Key points:" followed by 3-6 short markdown bullets (use "- ").
+    - Then a blank line and, if applicable, "Sources:" with short identifiers (or "Sources: Not available").
+
+    If the answer is not present in the context, respond exactly with:
+    Answer is not available in the context.
+
+    IMPORTANT: Do not include code fences, do not use numbering, do not add any
+    fields like 'response_metadata' or ids. Output ONLY markdown text.
+    """
     template = (
-        """
-You are an assistant that answers using ONLY the provided context.
-
-Start with a single-line direct answer (or "Answer is not available in the context."). Then include a 'Key points:' section with 3-6 bullet points listing the important facts or steps. Use concise bullets.
-
-Context:
-{context}
-
-Question:
-{question}
-"""
+        """You are an assistant that answers using ONLY the provided context. 
+        {instructions} Context: {context} 
+        Question: {question}
+        """.format(
+                instructions=(
+                    "- Provide a single-line concise answer first (one sentence).\n"
+                    "- Then a blank line.\n"
+                    "- Then the header: Key points:\n"
+                    "- Under 'Key points:' provide 3-6 short bullets (each starting with '- ').\n"
+                    "- Then a blank line and 'Sources:' listing sources or 'Sources: Not available'."
+        ),
+        context="{context}",
+        question="{question}",
+    )
     )
     return PromptTemplate(template=template, input_variables=["context", "question"])
+
 
 # ---------------------------
 # Generate answer (try Gemini via LangChain first, then HF fallback)
@@ -281,6 +301,78 @@ def generate_answer(prompt_template, docs, question, google_api_key=None):
 # ---------------------------
 # Formatting helpers
 # ---------------------------
+import re
+from collections import OrderedDict
+
+def clean_model_raw_output(raw_text: str) -> str:
+    """
+    Turn model output (or raw SDK repr) into clean markdown text:
+    - Extract content inside patterns like content='...'
+    - Remove bracketed metadata blocks and lines that look like 'response_metadata={...}'
+    - Remove duplicate consecutive blocks
+    - Normalize bullet markers to '- '
+    """
+    if not raw_text:
+        return raw_text
+
+    s = raw_text
+
+    # If the SDK returned something like "content='...'" extract the content
+    # This handles patterns like: content='Your text' or content="Your text"
+    m = re.search(r"content=('|\")(?P<t>.*)\\1", s, flags=re.DOTALL)
+    if m:
+        s = m.group("t")
+
+    # Remove obvious metadata tokens (ids, additional_kwargs, response_metadata, usage_metadata, etc.)
+    s = re.sub(r"\b(additional_kwargs|response_metadata|usage_metadata|id)=\{[^}]*\}", "", s, flags=re.DOTALL)
+    s = re.sub(r"\b(additional_kwargs|response_metadata|usage_metadata|id)=\s*[^,\n]+", "", s, flags=re.DOTALL)
+
+    # Remove stray "A1:" or "Q1:" prefixes and timestamps lines like '2025-10-06 ...'
+    s = re.sub(r"^[AQ]\d+:\s*", "", s, flags=re.MULTILINE)
+    s = re.sub(r"^\d{4}-\d{2}-\d{2}.*$", "", s, flags=re.MULTILINE)
+
+    # Normalize different bullet styles to '- '
+    s = s.replace("•", "- ").replace("*", "- ")
+    # Convert weird '-  -' to '- '
+    s = re.sub(r"-\s*-\s*", "- ", s)
+
+    # Remove consecutive duplicate lines while preserving order
+    lines = [line.rstrip() for line in s.splitlines()]
+    # Filter out empty or purely metadata-like lines
+    filtered = []
+    for ln in lines:
+        ln_strip = ln.strip()
+        if not ln_strip:
+            filtered.append("")  # keep blanks (we'll collapse later)
+            continue
+        # skip lines that look like 'response_metadata' etc
+        if re.search(r"response_metadata|usage_metadata|additional_kwargs|model_name|finish_reason", ln_strip, flags=re.I):
+            continue
+        filtered.append(ln_strip)
+
+    # Collapse repeated adjacent duplicates
+    deduped = []
+    prev = None
+    for ln in filtered:
+        if ln == prev:
+            continue
+        deduped.append(ln)
+        prev = ln
+
+    # Re-join and trim leading/trailing blanks
+    s2 = "\n".join(deduped).strip()
+
+    # If still no markdown bullets, try to intelligently split into bullets:
+    # If the output is one long paragraph > 120 chars, split into sentences.
+    if "-" not in s2 and len(s2) > 120:
+        sentences = re.split(r'(?<=[.!?])\s+', s2)
+        bullets = [sent.strip() for sent in sentences if sent.strip()]
+        s2 = "\n".join(bullets)
+
+    # Ensure each non-empty line that is not a header starts with '- ' if we want bullets
+    # We'll not force this here; leave to format_to_bullets() depending on mode.
+    return s2
+
 def format_to_bullets(text: str) -> str:
     # Clean and convert into markdown bullets
     lines = [line.strip() for line in text.split("\n") if line.strip()]
@@ -472,18 +564,51 @@ def main():
                             answer_text, model_used, error = generate_answer(prompt_template, docs, user_question, google_api_key=google_api_key)
 
                         if answer_text:
-                            # Format to bullets if chosen or if user picked 'Bullets'
-                            if format_choice == "Bullets":
-                                formatted_answer = format_to_bullets(answer_text)
-                            else:
-                                formatted_answer = html_module.escape(answer_text)
+                            # 1) Clean raw SDK noise (extract content if wrapped)
+                            cleaned = clean_model_raw_output(answer_text)
 
-                            add_message('assistant', formatted_answer)
+                            # 2) If user picked Bullets — enforce strict bullets (1-line answer + Key points)
+                            if format_choice == "Bullets":
+                                # Ask the model to produce bullets via prompt already; but just in case, normalize:
+                                # If the cleaned text already contains 'Key points' header, keep; else create one.
+                                if re.search(r"(?i)key points[:\s]", cleaned):
+                                    # keep as-is, just ensure bullets are '- '
+                                    normalized = re.sub(r"^[\s\-\*\u2022]+", "- ", cleaned, flags=re.MULTILINE)
+                                    formatted_answer = normalized
+                                else:
+                                    # If the model gave a paragraph, convert to: one-line summary + Key points
+                                    # One-line summary: first sentence
+                                    first_sent = re.split(r'(?<=[.!?])\s+', cleaned.strip())[0].strip()
+                                    # Remaining sentences -> bullets (3 max)
+                                    rest = re.split(r'(?<=[.!?])\s+', cleaned.strip())
+                                    rest_sents = [s for s in rest[1:] if s.strip()]
+                                    # take up to 5 bullets
+                                    bullets = rest_sents[:5] if rest_sents else []
+                                    bullets_md = "\n".join([f"- {b.strip()}" for b in bullets]) if bullets else "- (no additional key points available)"
+                                    formatted_answer = f"{first_sent}\n\nKey points:\n{bullets_md}\n\nSources: Not available"
+                            else:
+                                # Plain text mode — just present cleaned text as readable markdown (escape dangerous chars)
+                                safe = html_module.escape(cleaned).replace("\n", "  \n")  # preserve breaks
+                                formatted_answer = safe
+                        
+                            # 3) Deduplicate bullet lines (optional): keep first occurrence
+                            # convert to lines, remove consecutive duplicates
+                            lines = [ln.rstrip() for ln in formatted_answer.splitlines()]
+                            dedup_lines = []
+                            prev = None
+                            for ln in lines:
+                                if ln == prev:
+                                    continue
+                                dedup_lines.append(ln)
+                                prev = ln
+                            final_answer = "\n".join(dedup_lines).strip()
+                        
+                            # 4) Add to conversation and display as MARKDOWN (so bullets render like ChatGPT)
+                            add_message('assistant', final_answer)
                             st.session_state.last_model_used = model_used
                             st.session_state.focus_index = len(st.session_state.history) - 1
                             st.success("Answer generated and appended to conversation.")
-                        else:
-                            st.error(f"Failed to generate answer: {error}")
+
 
         # Upload and process PDFs
         with st.expander("📎 Upload PDFs (attach & process here)"):
@@ -674,3 +799,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
