@@ -13,11 +13,8 @@ import numpy as np
 
 from PyPDF2 import PdfReader
 from sentence_transformers import SentenceTransformer
-
-# hnswlib for vector index (robust on Streamlit Cloud)
 import hnswlib
 
-# LangChain types used for QA chain option and Documents
 try:
     from langchain.schema import Document
     from langchain.prompts import PromptTemplate
@@ -25,25 +22,21 @@ try:
     from langchain_google_genai import ChatGoogleGenerativeAI
     LANGCHAIN_AVAILABLE = True
 except Exception:
-    # LangChain or Google GenAI integration may be missing — we'll still run fallback generation.
     LANGCHAIN_AVAILABLE = False
 
-# HuggingFace fallback pipeline for generation
 from transformers import pipeline
-# Ensure CPU fallback by default
 HF_FALLBACK_MODEL = "google/flan-t5-small"
 
 # ---------------------------
 # Config
 # ---------------------------
-st.set_page_config(page_title="ChatPDF — Green & Black", layout="wide")
-EMBEDDING_MODEL_NAME = "all-MiniLM-L6-v2"  # sentence-transformers model id
+st.set_page_config(page_title="ChatPDF", layout="wide", initial_sidebar_state="collapsed")
+EMBEDDING_MODEL_NAME = "all-MiniLM-L6-v2"
 HNSW_DIR = "hnsw_index"
 CHUNK_SIZE = 1000
 CHUNK_OVERLAP = 200
 RETRIEVE_K = 4
 
-# Which Gemini model names to try (order)
 GEMINI_PREFERRED = [
     "gemini-2.0-flash-lite",
     "gemini-2.0-flash",
@@ -51,7 +44,7 @@ GEMINI_PREFERRED = [
 ]
 
 # ---------------------------
-# Helpers: embeddings wrapper
+# Embeddings & HNSW Classes
 # ---------------------------
 class LocalEmbeddings:
     def __init__(self, model_name: str = EMBEDDING_MODEL_NAME):
@@ -60,16 +53,12 @@ class LocalEmbeddings:
 
     def embed_documents(self, texts):
         vectors = self.model.encode(texts, show_progress_bar=False)
-        # return list[list[float]]
         return [vec.tolist() if hasattr(vec, "tolist") else list(map(float, vec)) for vec in vectors]
 
     def embed_query(self, text):
         vec = self.model.encode([text], show_progress_bar=False)[0]
         return vec.tolist() if hasattr(vec, "tolist") else list(map(float, vec))
 
-# ---------------------------
-# HNSW wrapper
-# ---------------------------
 class LocalHNSW:
     INDEX_FILENAME = "hnsw_index.bin"
     META_FILENAME = "hnsw_meta.pkl"
@@ -133,7 +122,6 @@ class LocalHNSW:
         for lid, dist in zip(labels, distances[0].tolist()):
             rec = self.id2doc.get(int(lid))
             if rec:
-                # Use langchain Document if available otherwise a simple dict
                 if LANGCHAIN_AVAILABLE:
                     results.append(Document(page_content=rec["text"], metadata={"score": float(dist)}))
                 else:
@@ -141,7 +129,7 @@ class LocalHNSW:
         return results
 
 # ---------------------------
-# PDF -> text -> chunks
+# PDF Processing
 # ---------------------------
 def get_pdf_text(pdf_files):
     text = ""
@@ -153,8 +141,7 @@ def get_pdf_text(pdf_files):
                 if page_text:
                     text += page_text + "\n"
         except Exception as e:
-            # skip unreadable files but show small note
-            st.warning(f"Warning: couldn't read a file: {getattr(pdf,'name', str(pdf))} ({e})")
+            st.warning(f"⚠️ Couldn't read {getattr(pdf,'name', 'a file')}")
             continue
     return text
 
@@ -173,630 +160,483 @@ def get_text_chunks(text, chunk_size=CHUNK_SIZE, overlap=CHUNK_OVERLAP):
     return chunks
 
 # ---------------------------
-# Prompt templates
+# Prompt Template - Single Unified Format
 # ---------------------------
-def build_plain_prompt():
-    template = (
-        """
-You are an assistant that answers using ONLY the provided context.
+def build_unified_prompt():
+    template = """You are a helpful AI assistant that answers questions based on the provided context.
 
-Provide a concise single-line direct answer first. If the answer is not present in the context, respond exactly with:
-Answer is not available in the context.
-
-After that, provide a short explanation in 1-3 sentences. Keep paragraphs short.
+Instructions:
+- Provide a clear, conversational answer based ONLY on the context below
+- Structure your response naturally with proper paragraphs
+- If the answer requires multiple points, use a brief introduction followed by clear points
+- If the answer is not in the context, say "I don't have enough information in the provided documents to answer that question."
+- Keep the response concise but complete
 
 Context:
 {context}
 
-Question:
-{question}
-"""
-    )
+Question: {question}
+
+Answer:"""
     return PromptTemplate(template=template, input_variables=["context", "question"])
-
-def build_bullets_prompt():
-    """
-    Strong formatting instructions so the model returns clean markdown.
-    Output must be ONLY markdown. Do NOT include any metadata, explanation about
-    the prompt, or any additional commentary. Follow the exact structure below.
-
-    - First line: single concise answer (one sentence).
-    - Then a blank line.
-    - Then a section "Key points:" followed by 3-6 short markdown bullets (use "- ").
-    - Then a blank line and, if applicable, "Sources:" with short identifiers (or "Sources: Not available").
-
-    If the answer is not present in the context, respond exactly with:
-    Answer is not available in the context.
-
-    IMPORTANT: Do not include code fences, do not use numbering, do not add any
-    fields like 'response_metadata' or ids. Output ONLY markdown text.
-    """
-    template = (
-        """You are an assistant that answers using ONLY the provided context. 
-        {instructions} Context: {context} 
-        Question: {question}
-        """.format(
-                instructions=(
-                    "- Provide a single-line concise answer first (one sentence).\n"
-                    "- Then a blank line.\n"
-                    "- Then the header: Key points:\n"
-                    "- Under 'Key points:' provide 3-6 short bullets (each starting with '- ').\n"
-                    "- Then a blank line and 'Sources:' listing sources or 'Sources: Not available'."
-        ),
-        context="{context}",
-        question="{question}",
-    )
-    )
-    return PromptTemplate(template=template, input_variables=["context", "question"])
-
 
 # ---------------------------
-# Generate answer (try Gemini via LangChain first, then HF fallback)
+# Answer Generation
 # ---------------------------
 def generate_answer(prompt_template, docs, question, google_api_key=None):
-    """
-    Returns (answer_text, model_name, error_or_none)
-    Tries Gemini via langchain_google_genai (if installed and api key provided),
-    else falls back to local HF pipeline.
-    """
-    # Build context text from docs
     if not docs:
-        return None, None, "No docs for retrieval."
-    # convert docs to a single context string (limit size if needed)
+        return None, None, "No documents retrieved."
+    
     context = "\n\n".join([d.page_content if hasattr(d, "page_content") else d["page_content"] for d in docs])
-    prompt_text = prompt_template.format(context=context, question=question)
-
-    # Attempt Gemini via LangChain + ChatGoogleGenerativeAI if available and key provided
+    
+    # Try Gemini first
     if LANGCHAIN_AVAILABLE and google_api_key:
         for model_name in GEMINI_PREFERRED:
             try:
-                model = ChatGoogleGenerativeAI(model=model_name, temperature=0.2)
+                model = ChatGoogleGenerativeAI(model=model_name, temperature=0.3)
                 chain = load_qa_chain(model, chain_type="stuff", prompt=prompt_template)
                 response = chain({"input_documents": docs, "question": question}, return_only_outputs=True)
+                
                 text = None
                 if isinstance(response, dict):
                     for key in ("output_text", "text", "answer", "output"):
                         if key in response and response[key]:
                             text = response[key]
                             break
-                    if not text:
-                        for v in response.values():
-                            if isinstance(v, str) and v.strip():
-                                text = v
-                                break
-                            if isinstance(v, list) and v:
-                                parts = [p for p in v if isinstance(p, str) and p.strip()]
-                                if parts:
-                                    text = "\n".join(parts)
-                                    break
                 elif isinstance(response, str):
                     text = response
-                else:
-                    try:
-                        text = str(response)
-                    except Exception:
-                        text = None
-
+                
                 if text and text.strip():
-                    return text.strip(), model_name, None
-                else:
-                    continue
-            except Exception as e:
-                # try next model
+                    return clean_answer(text.strip()), model_name, None
+            except Exception:
                 continue
-
-    # Fallback to HuggingFace pipeline
+    
+    # Fallback to HuggingFace
     try:
         hf = pipeline("text2text-generation", model=HF_FALLBACK_MODEL, device=-1)
-        # Use the assembled prompt_text
+        prompt_text = prompt_template.format(context=context, question=question)
         resp = hf(prompt_text, max_length=256, do_sample=False)
         if isinstance(resp, list) and resp:
             out = resp[0].get("generated_text") or resp[0].get("text") or str(resp[0])
-            return out.strip(), HF_FALLBACK_MODEL, None
-        else:
-            return None, None, "HF model returned empty."
+            return clean_answer(out.strip()), HF_FALLBACK_MODEL, None
     except Exception as e:
         return None, None, f"Generation failed: {e}"
+    
+    return None, None, "All models failed to generate a response."
+
+def clean_answer(text):
+    """Clean up the model's response to make it presentable"""
+    # Remove common artifacts
+    text = re.sub(r"content=(['\"])(.+?)\1", r"\2", text, flags=re.DOTALL)
+    text = re.sub(r"\b(additional_kwargs|response_metadata|usage_metadata|id)=\{[^}]*\}", "", text, flags=re.DOTALL)
+    
+    # Clean up formatting
+    text = text.replace("**", "").strip()
+    
+    # Remove duplicate consecutive lines
+    lines = text.split("\n")
+    cleaned_lines = []
+    prev_line = None
+    for line in lines:
+        line = line.strip()
+        if line != prev_line:
+            cleaned_lines.append(line)
+            prev_line = line
+    
+    return "\n".join(cleaned_lines).strip()
 
 # ---------------------------
-# Formatting helpers
-# ---------------------------
-import re
-from collections import OrderedDict
-
-def clean_model_raw_output(raw_text: str) -> str:
-    """
-    Turn model output (or raw SDK repr) into clean markdown text:
-    - Extract content inside patterns like content='...'
-    - Remove bracketed metadata blocks and lines that look like 'response_metadata={...}'
-    - Remove duplicate consecutive blocks
-    - Normalize bullet markers to '- '
-    """
-    if not raw_text:
-        return raw_text
-
-    s = raw_text
-
-    # If the SDK returned something like "content='...'" extract the content
-    # This handles patterns like: content='Your text' or content="Your text"
-    m = re.search(r"content=('|\")(?P<t>.*)\\1", s, flags=re.DOTALL)
-    if m:
-        s = m.group("t")
-
-    # Remove obvious metadata tokens (ids, additional_kwargs, response_metadata, usage_metadata, etc.)
-    s = re.sub(r"\b(additional_kwargs|response_metadata|usage_metadata|id)=\{[^}]*\}", "", s, flags=re.DOTALL)
-    s = re.sub(r"\b(additional_kwargs|response_metadata|usage_metadata|id)=\s*[^,\n]+", "", s, flags=re.DOTALL)
-
-    # Remove stray "A1:" or "Q1:" prefixes and timestamps lines like '2025-10-06 ...'
-    s = re.sub(r"^[AQ]\d+:\s*", "", s, flags=re.MULTILINE)
-    s = re.sub(r"^\d{4}-\d{2}-\d{2}.*$", "", s, flags=re.MULTILINE)
-
-    # Normalize different bullet styles to '- '
-    s = s.replace("•", "- ").replace("*", "- ")
-    # Convert weird '-  -' to '- '
-    s = re.sub(r"-\s*-\s*", "- ", s)
-
-    # Remove consecutive duplicate lines while preserving order
-    lines = [line.rstrip() for line in s.splitlines()]
-    # Filter out empty or purely metadata-like lines
-    filtered = []
-    for ln in lines:
-        ln_strip = ln.strip()
-        if not ln_strip:
-            filtered.append("")  # keep blanks (we'll collapse later)
-            continue
-        # skip lines that look like 'response_metadata' etc
-        if re.search(r"response_metadata|usage_metadata|additional_kwargs|model_name|finish_reason", ln_strip, flags=re.I):
-            continue
-        filtered.append(ln_strip)
-
-    # Collapse repeated adjacent duplicates
-    deduped = []
-    prev = None
-    for ln in filtered:
-        if ln == prev:
-            continue
-        deduped.append(ln)
-        prev = ln
-
-    # Re-join and trim leading/trailing blanks
-    s2 = "\n".join(deduped).strip()
-
-    # If still no markdown bullets, try to intelligently split into bullets:
-    # If the output is one long paragraph > 120 chars, split into sentences.
-    if "-" not in s2 and len(s2) > 120:
-        sentences = re.split(r'(?<=[.!?])\s+', s2)
-        bullets = [sent.strip() for sent in sentences if sent.strip()]
-        s2 = "\n".join(bullets)
-
-    # Ensure each non-empty line that is not a header starts with '- ' if we want bullets
-    # We'll not force this here; leave to format_to_bullets() depending on mode.
-    return s2
-
-def format_to_bullets(text: str) -> str:
-    # Clean and convert into markdown bullets
-    lines = [line.strip() for line in text.split("\n") if line.strip()]
-    if not lines:
-        return text
-    # If it's already a single paragraph, try split by sentences.
-    if len(lines) == 1 and len(lines[0]) > 120:
-        # naive sentence split
-        import re
-        sents = re.split(r'(?<=[.!?])\s+', lines[0])
-        lines = [s.strip() for s in sents if s.strip()]
-    bullets = "\n".join([f"- {html_module.escape(line)}" for line in lines])
-    return bullets
-
-# ---------------------------
-# Session state helpers
+# Session State
 # ---------------------------
 def init_session_state():
-    if "history" not in st.session_state:
-        st.session_state.history = []
+    if "messages" not in st.session_state:
+        st.session_state.messages = []
     if "hnsw_ready" not in st.session_state:
         st.session_state.hnsw_ready = os.path.isdir(HNSW_DIR)
-    if "last_model_used" not in st.session_state:
-        st.session_state.last_model_used = None
-    if "focus_index" not in st.session_state:
-        st.session_state.focus_index = None
-
-def add_message(role, text):
-    st.session_state.history.append({
-        "role": role,
-        "text": text,
-        "time": datetime.datetime.now().isoformat()
-    })
-
-def find_preceding_user_message_text(idx):
-    for i in range(idx - 1, -1, -1):
-        if st.session_state.history[i]["role"] == "user":
-            return st.session_state.history[i]["text"]
-    return None
-
-def format_time(iso_ts: str) -> str:
-    try:
-        dt = datetime.datetime.fromisoformat(iso_ts)
-        return dt.strftime("%Y-%m-%d %H:%M:%S")
-    except Exception:
-        try:
-            cleaned = iso_ts.rstrip("Z")
-            dt = datetime.datetime.fromisoformat(cleaned)
-            return dt.strftime("%Y-%m-%d %H:%M:%S")
-        except Exception:
-            return iso_ts
 
 # ---------------------------
-# UI: green + black theme CSS
+# Modern UI CSS
 # ---------------------------
-CHAT_CSS = """
+MODERN_CSS = """
 <style>
-/* page background */
-[data-testid="stAppViewContainer"] {
-  background: linear-gradient(180deg, #0b0f0b 0%, #081008 100%);
-  color: #b7f2b7;
-}
-
-/* sidebar background */
-[data-testid="stSidebar"] {
-  background: #061006;
-  color: #b7f2b7;
-}
-
-/* titles and headings */
-h1, h2, h3, .stMarkdown h1, .stMarkdown h2 {
-  color: #e6ffe6;
-}
-
-/* chat window */
-.chat-window { max-height: 68vh; overflow: auto; padding: 12px; background: #07110a; border-radius: 12px; box-shadow: 0 6px 18px rgba(0,0,0,0.6); }
-
-/* messages */
-.message { margin: 10px 0; display: flex; align-items: flex-end; }
-.bubble { max-width: 78%; padding: 12px 14px; border-radius: 12px; line-height: 1.45; font-family: 'Inter', sans-serif; color: #e6ffe6; }
-.bubble.user { background: linear-gradient(90deg,#0fa75d,#0a8a45); color: #ffffff; border-bottom-right-radius: 6px; margin-left: auto; }
-.bubble.assistant { background: #0f2a19; color: #bff3b0; border-bottom-left-radius: 6px; margin-right: auto; }
-
-/* meta */
-.meta { font-size: 11px; color: #9dd59d; margin-top: 6px; }
-
-/* focused */
-.focused { box-shadow: 0 0 0 3px rgba(6, 95, 57, 0.18); border: 1px solid rgba(0,255,0,0.08); padding: 10px; background: linear-gradient(90deg, #07110a, #07210c); }
-
-/* lists inside bubbles */
-.bubble ul { margin: 8px 0 8px 18px; color: #dfffd8; }
-.bubble ol { margin: 8px 0 8px 18px; color: #dfffd8; }
-pre { background: #001209; color: #bff3b0; padding: 10px; border-radius: 8px; overflow: auto; }
+    /* Import Google Font */
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+    
+    /* Global Styles */
+    * {
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    }
+    
+    /* Main Background */
+    [data-testid="stAppViewContainer"] {
+        background: #f7f7f8;
+    }
+    
+    /* Sidebar */
+    [data-testid="stSidebar"] {
+        background: #ffffff;
+        border-right: 1px solid #e5e5e5;
+    }
+    
+    /* Hide Streamlit branding */
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    header {visibility: hidden;}
+    
+    /* Chat Container */
+    .chat-container {
+        max-width: 800px;
+        margin: 0 auto;
+        padding: 20px;
+    }
+    
+    /* Message Bubbles */
+    .message {
+        display: flex;
+        margin-bottom: 24px;
+        animation: fadeIn 0.3s ease-in;
+    }
+    
+    @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(10px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+    
+    .message.user {
+        justify-content: flex-end;
+    }
+    
+    .message-content {
+        max-width: 80%;
+        padding: 12px 16px;
+        border-radius: 18px;
+        line-height: 1.5;
+        word-wrap: break-word;
+    }
+    
+    .message.user .message-content {
+        background: #10a37f;
+        color: white;
+        border-bottom-right-radius: 4px;
+    }
+    
+    .message.assistant .message-content {
+        background: #ffffff;
+        color: #353740;
+        border: 1px solid #e5e5e5;
+        border-bottom-left-radius: 4px;
+    }
+    
+    /* Avatar */
+    .avatar {
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 600;
+        font-size: 14px;
+        margin: 0 12px;
+        flex-shrink: 0;
+    }
+    
+    .message.user .avatar {
+        background: #10a37f;
+        color: white;
+        order: 2;
+    }
+    
+    .message.assistant .avatar {
+        background: #19c37d;
+        color: white;
+    }
+    
+    /* Input Area */
+    .stTextArea textarea {
+        border-radius: 12px;
+        border: 1px solid #d9d9e3;
+        padding: 12px 16px;
+        font-size: 15px;
+        resize: none;
+    }
+    
+    .stTextArea textarea:focus {
+        border-color: #10a37f;
+        box-shadow: 0 0 0 1px #10a37f;
+    }
+    
+    /* Buttons */
+    .stButton > button {
+        background: #10a37f;
+        color: white;
+        border: none;
+        border-radius: 8px;
+        padding: 10px 24px;
+        font-weight: 500;
+        transition: all 0.2s;
+    }
+    
+    .stButton > button:hover {
+        background: #0d8a6a;
+        box-shadow: 0 2px 8px rgba(16, 163, 127, 0.3);
+    }
+    
+    /* File Uploader */
+    [data-testid="stFileUploader"] {
+        border: 2px dashed #d9d9e3;
+        border-radius: 12px;
+        padding: 20px;
+        background: #f9f9fb;
+    }
+    
+    /* Success/Error Messages */
+    .stSuccess, .stError, .stWarning, .stInfo {
+        border-radius: 8px;
+        padding: 12px 16px;
+        margin: 10px 0;
+    }
+    
+    /* Expander */
+    .streamlit-expanderHeader {
+        background: #f9f9fb;
+        border-radius: 8px;
+        padding: 12px;
+        font-weight: 500;
+    }
+    
+    /* Title */
+    h1 {
+        color: #353740;
+        font-weight: 600;
+        font-size: 32px;
+        margin-bottom: 8px;
+    }
+    
+    /* Subtitle */
+    .subtitle {
+        color: #6e6e80;
+        font-size: 16px;
+        margin-bottom: 32px;
+    }
+    
+    /* Welcome Message */
+    .welcome-container {
+        text-align: center;
+        padding: 60px 20px;
+        max-width: 600px;
+        margin: 0 auto;
+    }
+    
+    .welcome-title {
+        font-size: 28px;
+        font-weight: 600;
+        color: #353740;
+        margin-bottom: 16px;
+    }
+    
+    .welcome-text {
+        font-size: 16px;
+        color: #6e6e80;
+        line-height: 1.6;
+    }
+    
+    /* Status Badge */
+    .status-badge {
+        display: inline-block;
+        padding: 6px 12px;
+        border-radius: 20px;
+        font-size: 13px;
+        font-weight: 500;
+        margin: 8px 0;
+    }
+    
+    .status-ready {
+        background: #d1f4e0;
+        color: #0d8a6a;
+    }
+    
+    .status-not-ready {
+        background: #fee;
+        color: #e11;
+    }
 </style>
 """
 
 # ---------------------------
-# Main app
+# Main App
 # ---------------------------
 def main():
-    st.markdown(CHAT_CSS, unsafe_allow_html=True)
+    st.markdown(MODERN_CSS, unsafe_allow_html=True)
     init_session_state()
-
-    # Header
-    cols = st.columns([0.7, 0.3])
-    with cols[0]:
-        st.title("📄 ChatPDF — Green & Black")
-        st.caption("Upload PDFs, process them locally, and chat. Bulleted, clean answers. No paid embedding APIs required.")
-    with cols[1]:
+    
+    # Sidebar for PDF Upload
+    with st.sidebar:
+        st.markdown("### 📄 Document Management")
+        
+        # Status indicator
         if st.session_state.hnsw_ready:
-            st.success("HNSW index available.")
+            st.markdown('<div class="status-badge status-ready">✓ Documents Ready</div>', unsafe_allow_html=True)
         else:
-            st.info("No index yet — upload PDFs to build one.")
-
-    left_col, center_col, right_col = st.columns([1.5, 3, 1])
-
-    # Left: history + export
-    with left_col:
-        st.header("💬 Conversations")
-        if not st.session_state.history:
-            st.info("No messages yet — your conversation history will appear here.")
-        else:
-            preview_items = []
-            for i, m in enumerate(st.session_state.history):
-                role = "You" if m['role'] == 'user' else "Assistant"
-                preview = m['text'][:90].replace("\n", " ")
-                ts = format_time(m.get('time', ''))
-                preview_items.append(f"{i}: [{ts}] {role}: {preview}")
-
-            default_index = 0
-            if st.session_state.get("focus_index") is not None:
-                fi = st.session_state.focus_index
-                if 0 <= fi < len(preview_items):
-                    default_index = fi
-
-            selected = st.radio("Select message to focus", options=list(range(len(preview_items))), index=default_index, format_func=lambda x: preview_items[x]) if preview_items else None
-            if preview_items and st.session_state.get("focus_index") != selected:
-                st.session_state.focus_index = selected
-
-            cols_left_actions = st.columns([0.5, 0.5])
-            with cols_left_actions[0]:
-                if st.button("Clear History"):
-                    st.session_state.history = []
-                    st.session_state.focus_index = None
-                    st.success("Chat history cleared.")
-            with cols_left_actions[1]:
-                st.write(" ")
-
-            st.markdown("---")
-            st.subheader("Export")
-            conv_text = []
-            for m in st.session_state.history:
-                role = "You" if m['role'] == 'user' else 'Assistant'
-                conv_text.append(f"[{format_time(m.get('time',''))}] {role}: {m['text']}")
-            if conv_text:
-                conv_joined = "\n".join(conv_text)
-                st.download_button("Download conversation", data=conv_joined, file_name="chatpdf_conversation.txt")
-            else:
-                st.info("Nothing to download yet.")
-
-    # Center: main chat
-    with center_col:
-        with st.form(key="question_form", clear_on_submit=True):
-            user_question = st.text_area("", placeholder="Type your question and press Send (Shift+Enter for newline)...", height=120, key='chat_input')
-            format_choice = st.selectbox("Answer style", options=["Plain text", "Bullets"], index=1)
-            cols_btn = st.columns([0.18, 0.82])
-            with cols_btn[0]:
-                send_btn = st.form_submit_button("Send")
-            with cols_btn[1]:
-                st.write(" ")
-
-            if send_btn and user_question and user_question.strip():
-                if not st.session_state.hnsw_ready:
-                    st.error("Index not found. Please upload & process PDFs first (use Upload PDFs below).")
-                else:
-                    add_message('user', user_question)
-                    try:
-                        embeddings = LocalEmbeddings()
-                        new_db = LocalHNSW.load_local(HNSW_DIR, embedding=embeddings)
-                        docs = new_db.similarity_search(user_question, k=RETRIEVE_K, embedding=embeddings)
-                    except Exception as e:
-                        st.error(f"Failed to load index: {e}")
-                        docs = []
-
-                    if docs:
-                        with st.spinner("Generating answer (trying best available model)..."):
-                            prompt_template = build_plain_prompt() if format_choice == "Plain text" else build_bullets_prompt()
-                            google_api_key = st.secrets.get("GOOGLE_API_KEY") if "GOOGLE_API_KEY" in st.secrets else os.getenv("GOOGLE_API_KEY")
-                            answer_text, model_used, error = generate_answer(prompt_template, docs, user_question, google_api_key=google_api_key)
-
-                        if answer_text:
-                            # 1) Clean raw SDK noise (extract content if wrapped)
-                            cleaned = clean_model_raw_output(answer_text)
-
-                            # 2) If user picked Bullets — enforce strict bullets (1-line answer + Key points)
-                            if format_choice == "Bullets":
-                                # Ask the model to produce bullets via prompt already; but just in case, normalize:
-                                # If the cleaned text already contains 'Key points' header, keep; else create one.
-                                if re.search(r"(?i)key points[:\s]", cleaned):
-                                    # keep as-is, just ensure bullets are '- '
-                                    normalized = re.sub(r"^[\s\-\*\u2022]+", "- ", cleaned, flags=re.MULTILINE)
-                                    formatted_answer = normalized
-                                else:
-                                    # If the model gave a paragraph, convert to: one-line summary + Key points
-                                    # One-line summary: first sentence
-                                    first_sent = re.split(r'(?<=[.!?])\s+', cleaned.strip())[0].strip()
-                                    # Remaining sentences -> bullets (3 max)
-                                    rest = re.split(r'(?<=[.!?])\s+', cleaned.strip())
-                                    rest_sents = [s for s in rest[1:] if s.strip()]
-                                    # take up to 5 bullets
-                                    bullets = rest_sents[:5] if rest_sents else []
-                                    bullets_md = "\n".join([f"- {b.strip()}" for b in bullets]) if bullets else "- (no additional key points available)"
-                                    formatted_answer = f"{first_sent}\n\nKey points:\n{bullets_md}\n\nSources: Not available"
-                            else:
-                                # Plain text mode — just present cleaned text as readable markdown (escape dangerous chars)
-                                safe = html_module.escape(cleaned).replace("\n", "  \n")  # preserve breaks
-                                formatted_answer = safe
-                        
-                            # 3) Deduplicate bullet lines (optional): keep first occurrence
-                            # convert to lines, remove consecutive duplicates
-                            lines = [ln.rstrip() for ln in formatted_answer.splitlines()]
-                            dedup_lines = []
-                            prev = None
-                            for ln in lines:
-                                if ln == prev:
-                                    continue
-                                dedup_lines.append(ln)
-                                prev = ln
-                            final_answer = "\n".join(dedup_lines).strip()
-                        
-                            # 4) Add to conversation and display as MARKDOWN (so bullets render like ChatGPT)
-                            add_message('assistant', final_answer)
-                            st.session_state.last_model_used = model_used
-                            st.session_state.focus_index = len(st.session_state.history) - 1
-                            st.success("Answer generated and appended to conversation.")
-
-
-        # Upload and process PDFs
-        with st.expander("📎 Upload PDFs (attach & process here)"):
-            uploaded = st.file_uploader("Upload PDF files", accept_multiple_files=True, type=['pdf'])
-            if st.button("Submit & Process Files"):
-                if not uploaded:
-                    st.warning("Please upload one or more PDF files first.")
-                else:
-                    progress_text = st.empty()
-                    progress_bar = st.progress(0)
-
-                    progress_text.info("Stage 1/4 — Extracting text from PDFs...")
-                    time.sleep(0.2)
-                    raw_text = get_pdf_text(uploaded)
-                    progress_bar.progress(10)
-
+            st.markdown('<div class="status-badge status-not-ready">⚠ No Documents</div>', unsafe_allow_html=True)
+        
+        st.markdown("---")
+        
+        # File upload section
+        uploaded_files = st.file_uploader(
+            "Upload PDF files",
+            accept_multiple_files=True,
+            type=['pdf'],
+            help="Upload one or more PDF files to chat with"
+        )
+        
+        if uploaded_files:
+            if st.button("🔄 Process Documents", use_container_width=True):
+                with st.spinner("Processing documents..."):
+                    # Extract text
+                    raw_text = get_pdf_text(uploaded_files)
+                    
                     if not raw_text.strip():
-                        st.error("No readable text found in uploaded PDFs.")
+                        st.error("No readable text found in PDFs")
                     else:
-                        progress_text.info("Stage 2/4 — Chunking text for embeddings...")
+                        # Create chunks
                         text_chunks = get_text_chunks(raw_text)
-                        progress_bar.progress(40)
-
-                        progress_text.info("Stage 3/4 — Creating embeddings and building HNSW index...")
-                        def cb(msg):
-                            progress_text.info(msg)
-
+                        
+                        # Build index
                         try:
                             embeddings = LocalEmbeddings()
                             index = LocalHNSW.from_texts(text_chunks, embedding=embeddings, space='cosine')
                             index.save_local(HNSW_DIR)
-                            progress_bar.progress(90)
                             st.session_state.hnsw_ready = True
-                            st.success(f"✅ Processing complete — indexed {len(text_chunks)} chunks.")
+                            st.success(f"✓ Processed {len(text_chunks)} text chunks!")
+                            st.rerun()
                         except Exception as e:
-                            st.error(f"Failed to build index: {e}")
-                            st.session_state.hnsw_ready = False
-
-                        progress_bar.progress(100)
-
-        # Render chat window
-        chat_box = st.container()
-        st.markdown("<div class='chat-window' id='chat-window'>", unsafe_allow_html=True)
-        if not st.session_state.history:
-            st.markdown("<div style='padding:20px;color:#9dd59d'>No messages yet — upload PDFs and ask a question!</div>", unsafe_allow_html=True)
-        else:
-            for idx, msg in enumerate(st.session_state.history):
-                ts = format_time(msg.get('time',''))
-                msg_id = f"msg-{idx}"
-                focused_class = "focused" if st.session_state.focus_index is not None and st.session_state.focus_index == idx else ""
-                if msg['role'] == 'assistant':
-                    content_html = msg['text']
-                    # If it's plain escaped text we want to keep line breaks
-                    # Already escaped when added; show as markdown inside bubble
-                    chat_box.markdown(
-                        f"""
-                        <div class='message' id='{msg_id}'>
-                          <div class='bubble assistant {focused_class}'>{content_html}<div class='meta'>{ts}</div></div>
-                        </div>
-                        """,
-                        unsafe_allow_html=True
-                    )
-                else:
-                    content_html = "<p style='margin:0;color:#07110a'>" + html_module.escape(msg['text']).replace("\n","<br/>") + "</p>"
-                    chat_box.markdown(
-                        f"""
-                        <div class='message' id='{msg_id}'>
-                          <div class='bubble user {focused_class}'>{content_html}<div class='meta'>{ts}</div></div>
-                        </div>
-                        """,
-                        unsafe_allow_html=True
-                    )
-        st.markdown("</div>", unsafe_allow_html=True)
-
-        # Scroll to focused message if set
-        if st.session_state.focus_index is not None:
-            focus_idx = st.session_state.focus_index
-            if 0 <= focus_idx < len(st.session_state.history):
-                scroll_script = f"""
-                <script>
-                const el = document.getElementById("msg-{focus_idx}");
-                if (el) {{
-                    el.scrollIntoView({{behavior: "smooth", block: "center"}});
-                }}
-                </script>
-                """
-                st.components.v1.html(scroll_script, height=0, width=0)
-
-    # Right: controls
-    with right_col:
-        st.header("Controls")
-        st.markdown("**Index status:**")
+                            st.error(f"Error: {e}")
+        
+        st.markdown("---")
+        
+        # Clear conversation
+        if st.button("🗑️ Clear Conversation", use_container_width=True):
+            st.session_state.messages = []
+            st.rerun()
+        
+        # Delete index
         if st.session_state.hnsw_ready:
-            st.success("HNSW index available.")
-        else:
-            st.warning("No HNSW index found. Upload PDFs to build index.")
-
-        st.markdown("---")
-        st.subheader("Reformat Answer")
-        focus_idx = st.session_state.focus_index
-        target_idx = None
-        if focus_idx is not None and 0 <= focus_idx < len(st.session_state.history):
-            if st.session_state.history[focus_idx]["role"] == "assistant":
-                target_idx = focus_idx
+            if st.button("❌ Delete Documents", use_container_width=True):
+                try:
+                    if os.path.isdir(HNSW_DIR):
+                        shutil.rmtree(HNSW_DIR)
+                    st.session_state.hnsw_ready = False
+                    st.success("Documents deleted")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Error: {e}")
+    
+    # Main Chat Interface
+    st.markdown("<div class='chat-container'>", unsafe_allow_html=True)
+    
+    # Header
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        st.title("ChatPDF")
+        st.markdown('<p class="subtitle">Ask questions about your documents</p>', unsafe_allow_html=True)
+    
+    # Display messages or welcome screen
+    if not st.session_state.messages:
+        st.markdown("""
+        <div class='welcome-container'>
+            <div class='welcome-title'>👋 Welcome to ChatPDF</div>
+            <div class='welcome-text'>
+                Upload your PDF documents using the sidebar, then ask me anything about them.
+                I'll provide clear, accurate answers based on your documents.
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+    else:
+        # Display chat history
+        for msg in st.session_state.messages:
+            role = msg["role"]
+            content = msg["content"]
+            
+            if role == "user":
+                st.markdown(f"""
+                <div class='message user'>
+                    <div class='message-content'>{html_module.escape(content)}</div>
+                    <div class='avatar'>You</div>
+                </div>
+                """, unsafe_allow_html=True)
             else:
-                for j in range(focus_idx+1, len(st.session_state.history)):
-                    if st.session_state.history[j]["role"] == "assistant":
-                        target_idx = j
-                        break
-        else:
-            for j in range(len(st.session_state.history)-1, -1, -1):
-                if st.session_state.history[j]["role"] == "assistant":
-                    target_idx = j
-                    break
-
-        if target_idx is not None:
-            st.write(f"Selected assistant message index: {target_idx}")
-            cols_regen = st.columns([1,1])
-            with cols_regen[0]:
-                if st.button("Regenerate — Plain Text", key=f"regen_plain_{target_idx}"):
-                    user_q = find_preceding_user_message_text(target_idx)
-                    if not user_q:
-                        st.error("Could not find the original user question.")
+                # Convert newlines to HTML breaks for assistant messages
+                formatted_content = content.replace("\n", "<br>")
+                st.markdown(f"""
+                <div class='message assistant'>
+                    <div class='avatar'>AI</div>
+                    <div class='message-content'>{formatted_content}</div>
+                </div>
+                """, unsafe_allow_html=True)
+    
+    st.markdown("</div>", unsafe_allow_html=True)
+    
+    # Input area at the bottom
+    st.markdown("<br><br>", unsafe_allow_html=True)
+    
+    # Create input form
+    with st.form(key="chat_form", clear_on_submit=True):
+        col1, col2 = st.columns([6, 1])
+        
+        with col1:
+            user_input = st.text_area(
+                "Message",
+                placeholder="Ask a question about your documents...",
+                height=80,
+                label_visibility="collapsed",
+                key="user_input"
+            )
+        
+        with col2:
+            st.markdown("<br>", unsafe_allow_html=True)
+            submit = st.form_submit_button("Send", use_container_width=True)
+        
+        if submit and user_input and user_input.strip():
+            if not st.session_state.hnsw_ready:
+                st.error("Please upload and process PDF documents first!")
+            else:
+                # Add user message
+                st.session_state.messages.append({
+                    "role": "user",
+                    "content": user_input.strip()
+                })
+                
+                # Retrieve relevant documents
+                try:
+                    embeddings = LocalEmbeddings()
+                    db = LocalHNSW.load_local(HNSW_DIR, embedding=embeddings)
+                    docs = db.similarity_search(user_input, k=RETRIEVE_K, embedding=embeddings)
+                except Exception as e:
+                    st.error(f"Error loading index: {e}")
+                    docs = []
+                
+                if docs:
+                    with st.spinner("Thinking..."):
+                        prompt_template = build_unified_prompt()
+                        google_api_key = st.secrets.get("GOOGLE_API_KEY") if "GOOGLE_API_KEY" in st.secrets else os.getenv("GOOGLE_API_KEY")
+                        answer, model_used, error = generate_answer(
+                            prompt_template,
+                            docs,
+                            user_input,
+                            google_api_key=google_api_key
+                        )
+                    
+                    if answer:
+                        st.session_state.messages.append({
+                            "role": "assistant",
+                            "content": answer
+                        })
+                        st.rerun()
                     else:
-                        try:
-                            embeddings = LocalEmbeddings()
-                            new_db = LocalHNSW.load_local(HNSW_DIR, embedding=embeddings)
-                            docs = new_db.similarity_search(user_q, k=RETRIEVE_K, embedding=embeddings)
-                        except Exception as e:
-                            st.error(f"Failed to load index: {e}")
-                            docs = []
-                        if docs:
-                            with st.spinner("Regenerating (plain text)..."):
-                                prompt_template = build_plain_prompt()
-                                google_api_key = st.secrets.get("GOOGLE_API_KEY") if "GOOGLE_API_KEY" in st.secrets else os.getenv("GOOGLE_API_KEY")
-                                answer_text, model_used, error = generate_answer(prompt_template, docs, user_q, google_api_key=google_api_key)
-                            if answer_text:
-                                formatted_answer = html_module.escape(answer_text)
-                                add_message('assistant', formatted_answer)
-                                st.session_state.last_model_used = model_used
-                                st.session_state.focus_index = len(st.session_state.history) - 1
-                                st.success("Regenerated (plain text).")
-                            else:
-                                st.error(f"Regeneration failed: {error}")
-            with cols_regen[1]:
-                if st.button("Regenerate — Bullets", key=f"regen_bullets_{target_idx}"):
-                    user_q = find_preceding_user_message_text(target_idx)
-                    if not user_q:
-                        st.error("Could not find the original user question.")
-                    else:
-                        try:
-                            embeddings = LocalEmbeddings()
-                            new_db = LocalHNSW.load_local(HNSW_DIR, embedding=embeddings)
-                            docs = new_db.similarity_search(user_q, k=RETRIEVE_K, embedding=embeddings)
-                        except Exception as e:
-                            st.error(f"Failed to load index: {e}")
-                            docs = []
-                        if docs:
-                            with st.spinner("Regenerating (bullets)..."):
-                                prompt_template = build_bullets_prompt()
-                                google_api_key = st.secrets.get("GOOGLE_API_KEY") if "GOOGLE_API_KEY" in st.secrets else os.getenv("GOOGLE_API_KEY")
-                                answer_text, model_used, error = generate_answer(prompt_template, docs, user_q, google_api_key=google_api_key)
-                            if answer_text:
-                                formatted_answer = format_to_bullets(answer_text)
-                                add_message('assistant', formatted_answer)
-                                st.session_state.last_model_used = model_used
-                                st.session_state.focus_index = len(st.session_state.history) - 1
-                                st.success("Regenerated (bullets).")
-                            else:
-                                st.error(f"Regeneration failed: {error}")
-        else:
-            st.info("No assistant message available to regenerate.")
-
-        st.markdown("---")
-        st.subheader("File / Index")
-        if st.button("Delete Index"):
-            try:
-                if os.path.isdir(HNSW_DIR):
-                    shutil.rmtree(HNSW_DIR)
-                st.session_state.hnsw_ready = False
-                st.success("Index deleted.")
-            except Exception as e:
-                st.error(f"Failed to delete index: {e}")
-
-        st.markdown("---")
-        if st.session_state.last_model_used:
-            st.write(f"_Last model used: {st.session_state.last_model_used}_")
+                        st.error(f"Failed to generate answer: {error}")
+                else:
+                    st.error("No relevant information found in documents")
 
 if __name__ == "__main__":
     main()
-
