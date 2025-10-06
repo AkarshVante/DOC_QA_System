@@ -1,9 +1,27 @@
-streamlit
-google-generativeai
-python-dotenv
-langchain
-langchain-community
-PyPDF2
-chromadb
-faiss-cpu
-langchain_google_genai
+# core web app
+streamlit==1.50.0
+
+# LangChain core + community integrations
+langchain==0.3.27
+langchain-google-genai==2.1.12
+langchain-community==0.3.30
+
+# Google GenAI client (for chat / Gemini calls)
+google-generativeai==0.8.5
+
+# Local embeddings
+sentence-transformers>=2.2.0,<6.0
+torch>=1.13.0
+
+# Transformers (backend used by sentence-transformers)
+transformers>=4.30.0
+
+# FAISS (CPU). If pip wheel fails on your host, see notes below.
+faiss-cpu==1.7.2
+
+# PDF and environment
+PyPDF2==3.0.1
+python-dotenv==1.0.0
+
+# Optional: helpful small utilities
+tqdm>=4.65.0
