@@ -7,7 +7,10 @@ import os
 import google.generativeai as genai
 
 # from langchain.vectorstores import FAISS
-from langchain_community.vectorstores import FAISS
+#from langchain_community.vectorstores import FAISS
+
+# Use HNSWLib vectorstore (more cloud-friendly than FAISS)
+from langchain.vectorstores import HNSWLib
 
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain.chains.question_answering import load_qa_chain
@@ -701,3 +704,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+
