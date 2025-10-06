@@ -28,6 +28,30 @@ except Exception:
 from transformers import pipeline
 HF_FALLBACK_MODEL = "google/flan-t5-small"
 
+# At the top of your main() function, after imports
+def main():
+    # Initialize sidebar state
+    if "sidebar_state" not in st.session_state:
+        st.session_state.sidebar_state = "expanded"
+    
+    st.set_page_config(
+        page_title="ChatPDF",
+        layout="wide",
+        initial_sidebar_state=st.session_state.sidebar_state
+    )
+    
+    st.markdown(MODERN_CSS, unsafe_allow_html=True)
+    init_session_state()
+    
+    # Add a button to toggle sidebar in your sidebar code
+    with st.sidebar:
+        if st.button("☰ Toggle Sidebar"):
+            st.session_state.sidebar_state = (
+                "collapsed" if st.session_state.sidebar_state == "expanded" 
+                else "expanded"
+            )
+            st.rerun()
+
 # ---------------------------
 # Config
 # ---------------------------
@@ -500,6 +524,20 @@ MODERN_CSS = """
         color: #d63;
         border: 2px solid #faa;
     }
+    /* Mobile sidebar improvements */
+@media (max-width: 768px) {
+    [data-testid="stSidebar"] {
+        width: 85vw;
+        max-width: 300px;
+    }
+    
+    /* Make toggle button more visible */
+    [data-testid="collapsedControl"] {
+        background: #10a37f;
+        border-radius: 8px;
+    }
+}
+
 </style>
 """
 
@@ -747,6 +785,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
