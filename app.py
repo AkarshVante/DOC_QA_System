@@ -441,6 +441,7 @@ UI_STYLES = """
     [data-testid="stChatInput"] textarea {
         min-height: 100px;
         font-size: 1.1em;
+         color: #FFFFFF;
     }
 </style>
 """
@@ -651,13 +652,14 @@ def main():
                 answer, model = generate_answer(docs, prompt, google_api_key)
                 
                 if model:
-                    answer += f"\n\n*Answered by: `{model}`*"
+                    answer += f""
                 
                 st.markdown(answer)
         st.session_state.messages.append({"role": "assistant", "content": answer})
 
 if __name__ == "__main__":
     main()
+
 
 
 
