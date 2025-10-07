@@ -334,12 +334,11 @@ def main():
                 docs = vector_store.similarity_search(prompt, k=RETRIEVE_K, embedding=embeddings)
                 answer, model = generate_answer(docs, prompt, google_api_key)
                 
-                # if model:
-                #     answer += f"\n\n*Answered by: `{model}`*"
+                if model:
+                    answer += f"\n\n*Answered by: `{model}`*"
                 
                 st.markdown(answer)
         st.session_state.messages.append({"role": "assistant", "content": answer})
 
 if __name__ == "__main__":
     main()
-
