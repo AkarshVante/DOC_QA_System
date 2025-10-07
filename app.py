@@ -367,7 +367,7 @@ MODERN_CSS = """
     }
     
     /* Hide Streamlit branding */
-    /* #MainMenu {visibility: hidden;} */
+    #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     header {visibility: hidden;}
     
@@ -476,7 +476,7 @@ MODERN_CSS = """
         border: 2px dashed #d9d9e3;
         border-radius: 12px;
         padding: 20px;
-        background: #E62600;/*white*/
+        background: White;/*white*/
     }
     
     /* Success/Error Messages */
@@ -801,6 +801,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
