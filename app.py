@@ -3,14 +3,14 @@ import os
 import time
 import shutil
 import pickle
+import html as html_module
+import re
 from io import BytesIO
 
 import streamlit as st
-import html as html_module
-import re
 import numpy as np
 
-# ---------- Optional heavy imports (handle if missing) ----------
+# ---------- Optional heavy imports (handled if missing) ----------
 try:
     from PyPDF2 import PdfReader
     HAVE_PYPDF2 = True
@@ -29,7 +29,7 @@ try:
 except Exception:
     HAVE_HNSWLIB = False
 
-# LangChain + Google generative
+# LangChain + Google generative fallback
 try:
     from langchain.schema import Document
     from langchain.prompts import PromptTemplate
@@ -61,7 +61,7 @@ GEMINI_PREFERRED = [
     "gemini-2.5-flash-lite",
 ]
 
-# ---------- Local Embeddings & HNSW ----------
+# ---------- Helpers: Local Embeddings & HNSW ----------
 class LocalEmbeddings:
     def __init__(self, model_name: str = EMBEDDING_MODEL_NAME):
         if not HAVE_SENTENCE_TRANSFORMERS:
@@ -161,53 +161,52 @@ def get_pdf_text(pdf_files):
                     if page_text:
                         text += page_text + "\n"
             else:
-                # Fallback if PyPDF2 not installed
-                text += f"[Could not extract {getattr(pdf,'name','file')} — install PyPDF2]\\n\\n"
-        except Exception:
-            st.warning(f"⚠️ Couldn't read {getattr(pdf,'name', 'a file')}")
+                # fallback placeholder if PyPDF2 not installed
+                text += f"[Could not extract {getattr(pdf,'name','file')} — install PyPDF2 to enable extraction]\n\n"
+        except Exception as e:
+            st.warning(f"⚠️ Couldn't read {getattr(pdf,'name', 'a file')}: {e}")
             continue
     return text
 
-# ---------- Text Chunking ----------
-def get_text_chunks(text):
-    # Split text into overlapping chunks
-    text = text.replace("\n", " ")
-    words = text.split()
+def get_text_chunks(text, chunk_size=CHUNK_SIZE, overlap=CHUNK_OVERLAP):
+    if not text:
+        return []
     chunks = []
-    current_chunk = []
-    for word in words:
-        current_chunk.append(word)
-        if len(" ".join(current_chunk)) > CHUNK_SIZE:
-            chunks.append(" ".join(current_chunk))
-            current_chunk = current_chunk[-CHUNK_OVERLAP:]
-    if current_chunk:
-        chunks.append(" ".join(current_chunk))
+    start = 0
+    length = len(text)
+    while start < length:
+        end = min(start + chunk_size, length)
+        chunk = text[start:end].strip()
+        if chunk:
+            chunks.append(chunk)
+        start += chunk_size - overlap
     return chunks
 
-# ---------- Answer Generation ----------
+# ---------- Prompt & Generation ----------
 def build_unified_prompt():
-    # Prompt template for generative models (LangChain)
-    template = PromptTemplate(
-        input_variables=["input_documents", "question"],
-        template=(
-            "Use the following extracted parts of a PDF and answer the user question "
-            "using only that information.\n\n{input_documents}\nQuestion: {question}"
-        )
-    )
-    return template
+    template = """You are a helpful AI assistant that answers questions based on the provided context.
+
+Instructions:
+- Provide a clear, conversational answer based ONLY on the context below
+- Structure your response naturally with proper paragraphs
+- If the answer is not in the context, say "I don't have enough information in the provided documents to answer that question."
+- Keep the response concise but complete
+
+Context:
+{context}
+
+Question: {question}
+
+Answer:"""
+    return PromptTemplate(template=template, input_variables=["context", "question"]) if LANGCHAIN_AVAILABLE else None
 
 def generate_answer(prompt_template, docs, question, google_api_key=None):
-    """
-    Tries LangChain + Gemini (if available with API key), else HF pipeline as fallback.
-    """
     if not docs:
         return None, None, "No documents retrieved."
 
-    context = "\n\n".join(
-        [d.page_content if hasattr(d, "page_content") else d["page_content"] for d in docs]
-    )
+    context = "\n\n".join([d.page_content if hasattr(d, "page_content") else d["page_content"] for d in docs])
 
-    # Gemini via LangChain if possible
+    # Try Gemini via LangChain if keys and modules are available
     if LANGCHAIN_AVAILABLE and google_api_key:
         for model_name in GEMINI_PREFERRED:
             try:
@@ -227,15 +226,11 @@ def generate_answer(prompt_template, docs, question, google_api_key=None):
             except Exception:
                 continue
 
-    # Transformers pipeline fallback
+    # Transformers fallback
     if HAVE_TRANSFORMERS:
         try:
             hf = pipeline("text2text-generation", model=HF_FALLBACK_MODEL, device=-1)
-            prompt_text = (
-                prompt_template.format(context=context, question=question)
-                if prompt_template
-                else f"Context:\n{context}\n\nQuestion: {question}\nAnswer:"
-            )
+            prompt_text = prompt_template.format(context=context, question=question) if prompt_template else f"Context:\n{context}\n\nQuestion: {question}\nAnswer:"
             resp = hf(prompt_text, max_length=256, do_sample=False)
             if isinstance(resp, list) and resp:
                 out = resp[0].get("generated_text") or resp[0].get("text") or str(resp[0])
@@ -246,22 +241,14 @@ def generate_answer(prompt_template, docs, question, google_api_key=None):
     # No model available
     return None, None, "No generation model available (no Gemini/HF)."
 
-# ---------- Clean Answer Utility ----------
 def clean_answer(text):
-    """Clean up model response for presentation."""
-    # Remove artifacts
-    text = re.sub(r"content=(['\"])(.+?)\\1", r"\2", text, flags=re.DOTALL)
+    text = re.sub(r"content=(['\"])(.+?)\1", r"\2", text, flags=re.DOTALL)
     text = re.sub(r"\b(additional_kwargs|response_metadata|usage_metadata|id)=\{[^}]*\}", "", text, flags=re.DOTALL)
-
-    # Remove markdown bold and trim
     text = text.replace("**", "").strip()
-
-    # Remove leading bullets/numbers
     text = re.sub(r"^[\*\-\u2022]\s+", "", text, flags=re.MULTILINE)
     text = re.sub(r"^\s*\d+[\.\)]\s+", "", text, flags=re.MULTILINE)
     text = re.sub(r"\n\s*\n+", "\n\n", text, flags=re.MULTILINE)
 
-    # Remove duplicate consecutive lines (keep single blank line)
     lines = text.split("\n")
     cleaned_lines = []
     prev_line = None
@@ -275,7 +262,7 @@ def clean_answer(text):
             prev_line = ""
     return "\n".join(cleaned_lines).strip()
 
-# ---------- Lexical Retriever Fallback ----------
+# ---------- Lexical retrieval ----------
 def lexical_score(query, text):
     q_tokens = set(re.findall(r"\w+", query.lower()))
     if not q_tokens:
@@ -289,14 +276,10 @@ def retrieve_top_chunks_lexical(query, chunks, top_k=RETRIEVE_K):
         return []
     scored = [(i, lexical_score(query, c), c) for i, c in enumerate(chunks)]
     scored.sort(key=lambda x: x[1], reverse=True)
-    top = [
-        {"page_content": c, "metadata": {}}
-        for i, score, c in scored[:top_k]
-        if score > 0
-    ]
+    top = [ {"page_content": c, "metadata": {}} for i, score, c in scored[:top_k] if score > 0 ]
     return top
 
-# ---------- Session State Initialization ----------
+# ---------- Session state ----------
 def init_session_state():
     if "messages" not in st.session_state:
         st.session_state.messages = []
@@ -311,265 +294,154 @@ def init_session_state():
     if "dark_mode" not in st.session_state:
         st.session_state.dark_mode = False
 
-# ---------- Modern UI CSS (capsule, animations, theme) ----------
+# ---------- CSS ----------
 MODERN_CSS = """
 <style>
-/* Fonts & base */
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 * { box-sizing: border-box; font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial; }
 
-/* Theme color variables */
+/* theme vars */
 :root[data-theme="light"] {
-  --bg: #f5f7f9;
-  --card: #ffffff;
-  --text: #0f1720;
-  --muted: #6b7280;
-  --accent: #10a37f;
-  --accent-strong: #0d8a6a;
-  --border: #e6e9ee;
-  --uploader-bg: #ffffff;
-  --input-bg: #ffffff;
-  --input-text: #0f1720;
-  --shadow-sm: 0 6px 18px rgba(16, 163, 127, 0.06);
-  --shadow-lg: 0 20px 50px rgba(16, 163, 127, 0.06);
+  --bg: #f5f7f9; --card: #ffffff; --text: #0f1720; --muted: #6b7280;
+  --accent: #10a37f; --accent-strong: #0d8a6a; --border: #e6e9ee;
+  --uploader-bg: #ffffff; --input-bg: #ffffff; --input-text: #0f1720;
+  --shadow-sm: 0 6px 18px rgba(16, 163, 127, 0.06); --shadow-lg: 0 20px 50px rgba(16,163,127,0.06);
 }
 :root[data-theme="dark"] {
-  --bg: #07101a;
-  --card: #07101a;
-  --text: #e6eef6;
-  --muted: #9aa6b2;
-  --accent: #19c37d;
-  --accent-strong: #10a37f;
-  --border: #13303f;
-  --uploader-bg: #07101a;
-  --input-bg: #0b1520;
-  --input-text: #e6eef6;
-  --shadow-sm: 0 6px 18px rgba(25, 195, 125, 0.06);
-  --shadow-lg: 0 20px 50px rgba(25, 195, 125, 0.06);
+  --bg: #07101a; --card: #07101a; --text: #e6eef6; --muted: #9aa6b2;
+  --accent: #19c37d; --accent-strong: #10a37f; --border: #13303f;
+  --uploader-bg: #07101a; --input-bg: #0b1520; --input-text: #e6eef6;
+  --shadow-sm: 0 6px 18px rgba(25, 195, 125, 0.06); --shadow-lg: 0 20px 50px rgba(25,195,125,0.06);
 }
 
-/* App background */
+/* background */
 [data-testid="stAppViewContainer"] { background: var(--bg); transition: background .25s ease; }
 
-/* Always show sidebar */
-[data-testid="stSidebar"], aside[role="complementary"],
-[data-testid="stSidebar"][aria-expanded="false"], [data-testid="stSidebar"][aria-expanded="true"] {
-  display:block !important;
-  visibility:visible !important;
-  transform:none !important;
-  width:21rem !important;
-  min-width:21rem !important;
-  max-width:21rem !important;
-  position:relative !important;
-  left:0 !important;
-  margin-left:0 !important;
-  opacity:1 !important;
-  z-index:9999 !important;
-  background: var(--card) !important;
-  border-right: 1px solid var(--border);
-  transition: background .25s ease, border-color .25s ease;
-}
+/* sidebar */
+[data-testid="stSidebar"] { background: var(--card) !important; color: var(--text) !important; border-right: 1px solid var(--border); }
 
-/* Sidebar text color */
-[data-testid="stSidebar"] * { color: var(--text) !important; }
-[data-testid="stSidebar"] .stMarkdown { color: var(--text) !important; }
-
-/* Chat container */
+/* chat container */
 .chat-container { max-width: 880px; margin: 0 auto; padding: 22px; color: var(--text); }
 
-/* Message animations & bubbles */
-@keyframes popSlide {
-  0% { opacity: 0; transform: translateY(10px) scale(.995); filter: blur(4px); }
-  60% { opacity: 1; transform: translateY(-4px) scale(1.01); filter: blur(0); }
-  100% { transform: translateY(0) scale(1); filter: none; }
-}
+/* message animation */
+@keyframes popSlide { 0% { opacity: 0; transform: translateY(10px) scale(.995); } 60% { opacity:1; transform: translateY(-4px) scale(1.01);} 100% { transform:translateY(0) scale(1); } }
 .message { display:flex; margin-bottom: 18px; animation: popSlide .36s cubic-bezier(.2,.9,.3,1) both; }
-.message.user { justify-content: flex-end; }
+.message.user { justify-content:flex-end; }
 .message-content {
-  max-width: 82%;
-  padding: 14px 18px;
-  border-radius: 18px;
-  line-height: 1.5;
-  word-wrap: break-word;
-  box-shadow: var(--shadow-sm);
-  transition: transform .18s ease, box-shadow .18s ease;
-  background: var(--card);
-  border: 2px solid #add8e6;  /* Light blue border for chat bubbles */
-  color: var(--text);
+  max-width:82%; padding:14px 18px; border-radius:18px; line-height:1.5; word-wrap:break-word;
+  box-shadow: var(--shadow-sm); transition: transform .18s ease, box-shadow .18s ease;
+  background: var(--card); border: 2px solid #add8e6; color: var(--text);
 }
 .message-content:hover { transform: translateY(-2px); box-shadow: var(--shadow-lg); }
 
-/* Avatars */
+/* avatars */
 .avatar { width:32px; height:32px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:600; font-size:13px; margin:0 12px; flex-shrink:0; }
-.message.user .avatar { background: var(--accent); color: #fff; order: 2; }
+.message.user .avatar { background: var(--accent); color: #fff; order:2; }
 .message.assistant .avatar { background: var(--accent-strong); color: #fff; }
 
-/* Input box (capsule style) */
-.stTextArea, .stTextArea > div { display:block !important; }
-.stTextArea textarea {
-  width:100% !important;
-  min-height:88px !important;
-  border-radius:999px !important;
-  padding:18px 20px !important;
-  font-size:15px !important;
-  background: var(--input-bg) !important;
-  color: var(--input-text) !important;
-  border:1px solid var(--border) !important;
-  box-shadow: var(--shadow-sm) !important;
-  transition: box-shadow .18s ease, transform .12s ease, border-color .12s ease, background .18s ease;
-  outline:none !important;
-  resize:vertical !important;
-}
-.stTextArea textarea:focus {
-  box-shadow: 0 10px 30px rgba(16,163,127,0.08);
-  border-color: var(--accent);
-  transform: translateY(-2px);
-}
+/* input capsule */
+.stTextArea textarea { width:100% !important; min-height:88px !important; border-radius:999px !important; padding:18px 20px !important; font-size:15px !important; background: var(--input-bg) !important; color: var(--input-text) !important; border:1px solid var(--border) !important; box-shadow: var(--shadow-sm) !important; transition: box-shadow .18s ease, transform .12s ease; outline:none !important; resize:vertical !important; }
+.stTextArea textarea:focus { box-shadow: 0 10px 30px rgba(16,163,127,0.08); border-color: var(--accent); transform: translateY(-2px); }
 
-/* Send button */
-.stButton > button {
-  border-radius:999px !important;
-  padding:12px 22px !important;
-  background: linear-gradient(180deg, var(--accent), var(--accent-strong)) !important;
-  color:#fff !important;
-  border:none !important;
-  box-shadow: 0 8px 26px rgba(16,163,127,0.12);
-  transition: transform .12s ease, box-shadow .18s ease, opacity .12s ease;
-}
-.stButton > button:hover { transform: translateY(-3px); box-shadow: 0 18px 48px rgba(16,163,127,0.12); }
+/* buttons */
+.stButton > button { border-radius:999px !important; padding:12px 22px !important; background: linear-gradient(180deg, var(--accent), var(--accent-strong)) !important; color:#fff !important; border:none !important; box-shadow: 0 8px 26px rgba(16,163,127,0.12); transition: transform .12s ease, box-shadow .18s ease; }
 
-/* File uploader */
-[data-testid="stFileUploader"] {
-  background: var(--uploader-bg) !important;
-  border-radius: 12px;
-  padding: 18px;
-  border: 2px solid var(--border);  /* Visible border for uploader area */
-  box-shadow: var(--shadow-sm);
-  transition: border-color .15s ease, box-shadow .15s ease, background .15s ease;
-}
+/* file uploader */
+[data-testid="stFileUploader"] { background: var(--uploader-bg) !important; border-radius:12px; padding:18px; border: 2px solid var(--border); box-shadow: var(--shadow-sm); transition: border-color .15s ease, box-shadow .15s ease; }
 [data-testid="stFileUploader"]:hover { border-color: var(--accent); box-shadow: var(--shadow-lg); }
 
-/* Status badge */
-.status-badge { display:inline-block; padding:8px 16px; border-radius:20px; font-size:14px; font-weight:600; margin:8px 0; text-align:center; }
-.status-ready { background: rgba(16,163,127,0.08); color: var(--accent-strong); border: 1px solid rgba(16,163,127,0.14); }
-.status-not-ready { background: #fff6f6; color: #d63; border:1px solid #f7d6d6; }
-
-/* Hide Streamlit menu/footer */
+/* hide streamlit chrome */
 #MainMenu, header, footer { visibility: hidden !important; height: 0 !important; padding: 0 !important; margin: 0 !important; }
 
-/* Responsive */
-@media (max-width: 780px) {
-  .chat-container { padding: 14px; }
-  [data-testid="stSidebar"] { width: 100% !important; max-width: 100% !important; position: relative !important; }
-}
+@media (max-width:780px) { .chat-container { padding: 14px; } [data-testid="stSidebar"] { width:100% !important; max-width:100% !important; } }
 </style>
 """
 
+# ---------- App ----------
 def main():
-    # Inject custom CSS for theming and modern UI
     st.markdown(MODERN_CSS, unsafe_allow_html=True)
     init_session_state()
 
-    # Apply dark/light theme toggle
-    theme = "dark" if st.session_state.dark_mode else "light"
-    st.markdown(
-        f"<script>document.documentElement.setAttribute('data-theme', '{theme}');</script>",
-        unsafe_allow_html=True
-    )
-
-    # ---------- Sidebar (theme toggle + document controls) ----------
+    # ---- Sidebar: read the theme choice FIRST so we can apply theme afterwards ----
     with st.sidebar:
-        # Theme toggle checkbox
         st.session_state.dark_mode = st.checkbox(
             "🌙 Dark mode" if not st.session_state.dark_mode else "☀️ Light mode",
             value=st.session_state.dark_mode
         )
 
         st.markdown("## 📄 Documents")
-        st.markdown("")
-        # Documents status badge
         if st.session_state.hnsw_ready:
-            st.markdown('<div class="status-badge status-ready">✓ Documents Ready</div>', unsafe_allow_html=True)
+            st.markdown('<div style="padding:6px;border-radius:12px;background:rgba(16,163,127,0.06);border:1px solid rgba(16,163,127,0.14);font-weight:600;">✓ Documents Ready</div>', unsafe_allow_html=True)
         else:
-            st.markdown('<div class="status-badge status-not-ready">⚠ Upload PDFs to Start</div>', unsafe_allow_html=True)
+            st.markdown('<div style="padding:6px;border-radius:12px;background:#fff6f6;border:1px solid #f7d6d6;font-weight:600;">⚠ Upload PDFs to Start</div>', unsafe_allow_html=True)
 
         st.markdown("---")
         st.markdown("#### 📤 Upload PDFs")
-        uploaded_files = st.file_uploader(
-            "Choose PDF files",
-            accept_multiple_files=True,
-            type=['pdf'],
-            help="Upload one or more PDF files to chat with"
-        )
+        uploaded_files = st.file_uploader("Choose PDF files", accept_multiple_files=True, type=['pdf'], help="Upload one or more PDF files to chat with")
 
         if uploaded_files:
             st.markdown("**Uploaded files:**")
-            for file in uploaded_files:
-                st.text(f"📄 {file.name}")
-            st.markdown("")
+            for f in uploaded_files:
+                st.text(f"📄 {f.name}")
 
         if uploaded_files and st.button("🔄 Process Documents", use_container_width=True):
-            progress_bar = st.progress(0)
-            status_text = st.empty()
+            progress = st.progress(0)
+            status = st.empty()
             try:
-                status_text.text("📖 Reading PDF files...")
-                progress_bar.progress(20)
+                status.text("📖 Reading PDF files...")
+                progress.progress(10)
                 raw_text = get_pdf_text(uploaded_files)
                 if not raw_text.strip():
-                    st.error("❌ No readable text found in PDFs. Ensure the PDF contains selectable text.")
+                    st.error("❌ No readable text found in the provided PDFs. If the PDF contains scanned images, consider OCRing them first (or upload a text-based PDF).")
+                    progress.empty()
+                    status.empty()
                 else:
-                    status_text.text("✂️ Splitting text into chunks...")
-                    progress_bar.progress(40)
-                    text_chunks = get_text_chunks(raw_text)
+                    status.text("✂️ Splitting text into chunks...")
+                    progress.progress(40)
+                    chunks = get_text_chunks(raw_text)
+                    status.text("🔍 Building search index...")
+                    progress.progress(60)
 
-                    status_text.text("🔍 Building search index...")
-                    progress_bar.progress(60)
-
-                    # Try local embeddings + HNSW
                     if HAVE_SENTENCE_TRANSFORMERS and HAVE_HNSWLIB:
                         try:
                             embeddings = LocalEmbeddings()
-                            index = LocalHNSW.from_texts(text_chunks, embedding=embeddings, space='cosine')
-                            status_text.text("💾 Saving index...")
-                            progress_bar.progress(80)
+                            index = LocalHNSW.from_texts(chunks, embedding=embeddings, space='cosine')
+                            status.text("💾 Saving index...")
+                            progress.progress(80)
                             index.save_local(HNSW_DIR)
                             st.session_state.use_local_hnsw = True
+                            st.session_state.chunks = chunks
                             st.session_state.processed_files = [getattr(f, "name", "file") for f in uploaded_files]
                             st.session_state.hnsw_ready = True
-                            st.success(f"✅ Processed {len(text_chunks)} text chunks with HNSW!")
+                            st.success(f"✅ Processed {len(chunks)} chunks and saved HNSW index locally.")
+                            progress.progress(100)
                         except Exception as e:
                             st.warning("Local HNSW build failed — falling back to lexical retrieval.")
-                            st.error(f"❌ Error: {e}")
-                            st.session_state.chunks = text_chunks
-                            st.session_state.processed_files = [getattr(f, "name", "file") for f in uploaded_files]
+                            st.error(f"Error building HNSW index: {e}")
+                            st.session_state.chunks = chunks
                             st.session_state.use_local_hnsw = False
+                            st.session_state.processed_files = [getattr(f, "name", "file") for f in uploaded_files]
                             st.session_state.hnsw_ready = True
                     else:
-                        # Fallback to lexical
-                        st.info("Using lexical retriever fallback (no sentence-transformers/hnswlib).")
-                        st.session_state.chunks = text_chunks
-                        st.session_state.processed_files = [getattr(f, "name", "file") for f in uploaded_files]
+                        st.info("Using lexical retrieval fallback (sentence-transformers or hnswlib not installed).")
+                        st.session_state.chunks = chunks
                         st.session_state.use_local_hnsw = False
+                        st.session_state.processed_files = [getattr(f, "name", "file") for f in uploaded_files]
                         st.session_state.hnsw_ready = True
 
-                    progress_bar.progress(100)
-                    status_text.empty()
-                    progress_bar.empty()
-                    time.sleep(0.6)
-                    st.experimental_rerun()
+                    progress.empty()
+                    status.empty()
             except Exception as e:
-                st.error(f"❌ Error processing documents: {e}. Please check your PDFs and try again.")
-                progress_bar.empty()
-                status_text.empty()
+                st.error(f"❌ Error processing documents: {e}. Please check the PDFs and try again.")
+                progress.empty()
+                status.empty()
 
         st.markdown("---")
         if st.session_state.messages:
             st.markdown(f"**💬 Messages:** {len(st.session_state.messages)}")
-
         st.markdown("---")
         if st.button("🗑️ Clear Conversation", use_container_width=True):
             st.session_state.messages = []
-            st.experimental_rerun()
 
         if st.session_state.hnsw_ready:
             if st.button("❌ Delete Documents", use_container_width=True):
@@ -581,78 +453,54 @@ def main():
                     st.session_state.chunks = []
                     st.session_state.processed_files = []
                     st.success("Documents deleted")
-                    st.experimental_rerun()
                 except Exception as e:
-                    st.error(f"Error: {e}")
+                    st.error(f"Error deleting documents: {e}")
 
-    # ---------- Main Chat Interface ----------
+    # ---- Apply theme to document root AFTER checkbox is read ----
+    theme = "dark" if st.session_state.dark_mode else "light"
+    st.markdown(f"<script>document.documentElement.setAttribute('data-theme','{theme}');</script>", unsafe_allow_html=True)
+
+    # ---- Main UI ----
     st.markdown("<div class='chat-container'>", unsafe_allow_html=True)
+    st.markdown("<h1 style='text-align:center;margin-bottom:6px;'>📄 ChatPDF</h1>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align:center;margin-top:0;color:var(--muted)'>Ask questions about your documents</p>", unsafe_allow_html=True)
 
-    # Centered title with icon
-    st.markdown("<h1 style='text-align: center;'>📄 ChatPDF</h1>", unsafe_allow_html=True)
-    st.markdown('<p class="subtitle" style="text-align: center;">Ask questions about your documents</p>', unsafe_allow_html=True)
-
-    # Welcome or instructions
+    # If no messages, show welcome / instructions
     if not st.session_state.messages:
         if st.session_state.hnsw_ready:
-            st.markdown("""
-            <div class='welcome-container'>
-                <div class='welcome-title'>✅ Ready to Chat!</div>
-                <div class='welcome-text'>
-                    Your documents are processed and ready.<br>
-                    Ask me anything about your PDFs below!
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
+            st.markdown("""<div style='padding:12px;border-radius:10px;border:1px solid var(--border);background:var(--card)'>
+                             ✅ Your documents are ready — ask a question below.
+                           </div>""", unsafe_allow_html=True)
         else:
-            st.markdown("""
-            <div class='welcome-container'>
-                <div class='welcome-title'>👋 Welcome to ChatPDF</div>
-                <div class='welcome-text'>
-                    <strong>Get started:</strong><br>
-                    1. Use the sidebar (←) to upload your PDF documents<br>
-                    2. Click "Process Documents" to index them<br>
-                    3. Ask me anything about your documents!
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
+            st.markdown("""<div style='padding:12px;border-radius:10px;border:1px solid var(--border);background:var(--card)'>
+                             👋 Welcome — upload and process PDF(s) from the sidebar to begin.
+                           </div>""", unsafe_allow_html=True)
     else:
-        # Display chat history
-        for idx, msg in enumerate(st.session_state.messages):
-            role = msg["role"]
-            content = msg["content"]
-
+        # render chat messages
+        for msg in st.session_state.messages:
+            role = msg.get("role", "assistant")
+            content = msg.get("content", "")
             if role == "user":
-                escaped = html_module.escape(content)
-                st.markdown(
-                    f"<div class='message user'><div class='message-content'>{escaped}</div><div class='avatar'>🙂</div></div>",
-                    unsafe_allow_html=True
-                )
+                escaped = html_module.escape(content).replace("\n", "<br>")
+                st.markdown(f"<div class='message user'><div class='message-content'>{escaped}</div><div class='avatar'>You</div></div>", unsafe_allow_html=True)
             else:
-                formatted_content = html_module.escape(content).replace("\n", "<br>")
-                st.markdown(
-                    f"<div class='message assistant'><div class='avatar'>🤖</div><div class='message-content'>{formatted_content}</div></div>",
-                    unsafe_allow_html=True
-                )
+                formatted = html_module.escape(content).replace("\n", "<br>")
+                st.markdown(f"<div class='message assistant'><div class='avatar'>AI</div><div class='message-content'>{formatted}</div></div>", unsafe_allow_html=True)
 
     st.markdown("</div>", unsafe_allow_html=True)
-
-    # Input form at bottom
     st.markdown("<br>", unsafe_allow_html=True)
+
+    # ---- Input form ----
     with st.form(key="chat_form", clear_on_submit=True):
         col1, col2 = st.columns([6, 1])
         with col1:
             user_input = st.text_area(
                 "Message",
-                placeholder=(
-                    "Ask a question about your documents... (Ctrl+Enter to send)"
-                    if st.session_state.hnsw_ready
-                    else "Upload and process PDFs first..."
-                ),
+                placeholder=("Ask a question about your documents..." if st.session_state.hnsw_ready else "Upload and process PDFs first..."),
                 height=100,
-                label_visibility="collapsed",
                 key="user_input",
-                disabled=not st.session_state.hnsw_ready
+                disabled=not st.session_state.hnsw_ready,
+                label_visibility="collapsed",
             )
         with col2:
             st.markdown("<br>", unsafe_allow_html=True)
@@ -661,47 +509,44 @@ def main():
 
         if submit:
             if not st.session_state.hnsw_ready:
-                st.error("⚠️ Please upload and process PDF documents before asking a question.")
-            elif user_input and user_input.strip():
-                # Append user question
+                st.error("⚠️ Upload and process PDFs first (sidebar) before asking questions.")
+            elif not user_input or not user_input.strip():
+                st.warning("Please enter a question before hitting Send.")
+            else:
+                # Append user message
                 st.session_state.messages.append({"role": "user", "content": user_input.strip()})
 
-                with st.spinner("🤔 Searching documents and generating answer..."):
-                    # Retrieve documents via HNSW or lexical
+                with st.spinner("🤔 Retrieving relevant parts and generating answer..."):
+                    docs = []
                     if st.session_state.use_local_hnsw and HAVE_SENTENCE_TRANSFORMERS and HAVE_HNSWLIB:
                         try:
                             embeddings = LocalEmbeddings()
                             db = LocalHNSW.load_local(HNSW_DIR, embedding=embeddings)
                             docs = db.similarity_search(user_input, k=RETRIEVE_K, embedding=embeddings)
-                        except Exception:
-                            st.warning("Local HNSW lookup failed; using lexical retriever.")
+                        except Exception as e:
+                            st.warning("HNSW lookup failed; falling back to lexical retrieval.")
                             docs = retrieve_top_chunks_lexical(user_input, st.session_state.chunks, top_k=RETRIEVE_K)
                     else:
                         docs = retrieve_top_chunks_lexical(user_input, st.session_state.chunks, top_k=RETRIEVE_K)
 
-                    if docs:
+                    # If no docs found -> helpful message
+                    if not docs:
+                        st.session_state.messages.append({"role": "assistant", "content": "⚠️ I couldn't find relevant information in the documents. Try rephrasing your question or ensure the correct PDFs were uploaded."})
+                    else:
                         prompt_template = build_unified_prompt() if LANGCHAIN_AVAILABLE else None
-                        google_api_key = (
-                            st.secrets.get("GOOGLE_API_KEY") if "GOOGLE_API_KEY" in st.secrets else os.getenv("GOOGLE_API_KEY")
-                        )
+                        google_api_key = (st.secrets.get("GOOGLE_API_KEY") if "GOOGLE_API_KEY" in st.secrets else os.getenv("GOOGLE_API_KEY"))
                         answer, model_used, error = generate_answer(prompt_template, docs, user_input, google_api_key=google_api_key)
                         if answer:
                             st.session_state.messages.append({"role": "assistant", "content": answer})
                         else:
-                            # No LLM available: show context instead
-                            concat = "\n\n".join(
-                                [d["page_content"] if isinstance(d, dict) else d.page_content for d in docs]
-                            )
-                            excerpt = (concat[:800].strip() + "...") if len(concat) > 800 else concat
-                            fallback_text = f"(No LLM available) Extracted context:\n\n{excerpt}"
+                            # fallback: show a concise excerpt of retrieved context with a clear note
+                            concat = "\n\n".join([d["page_content"] if isinstance(d, dict) else d.page_content for d in docs])
+                            excerpt = (concat[:1200].strip() + "...") if len(concat) > 1200 else concat
+                            fallback_text = "(No LLM available) Extracted context from documents:\n\n" + excerpt
                             st.session_state.messages.append({"role": "assistant", "content": fallback_text})
-                    else:
-                        st.session_state.messages.append({
-                            "role": "assistant",
-                            "content": "⚠️ I couldn't find relevant information in the documents to answer your question. Please try rephrasing or check your PDFs."
-                        })
 
-                st.experimental_rerun()
+                # After appending messages we do NOT call experimental_rerun (some Streamlit installs do not have it).
+                # The form submission will cause the app to rerun and the updated session_state.messages will be rendered.
 
 if __name__ == "__main__":
     main()
