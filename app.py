@@ -54,18 +54,24 @@
 # # Prioritizing the requested Gemini models
 # GEMINI_PREFERRED = ["gemini-2.0-flash", "gemini-2.0-flash-lite", "gemini-1.5-flash", "gemini-pro"]
 
-# # ---------- UI & Styling (Restored) ----------
+# # ---------- UI & Styling (Enhanced) ----------
 # UI_STYLES = """
 # <style>
 #     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
-    
-#     html, body, [class*="st-"] { 
-#         font-family: 'Inter', sans-serif; 
+
+#     /* Define animation */
+#     @keyframes fadeIn {
+#         from { opacity: 0; transform: translateY(10px); }
+#         to { opacity: 1; transform: translateY(0); }
 #     }
 
-#     /* Hide default Streamlit elements */
-#     #MainMenu, footer, .stDeployButton { 
-#         visibility: hidden; 
+#     html, body, [class*="st-"] {
+#         font-family: 'Inter', sans-serif;
+#     }
+
+#     /* Hide other default Streamlit elements */
+#     #MainMenu, footer, .stDeployButton {
+#         visibility: hidden;
 #     }
     
 #     /* Main app background */
@@ -73,26 +79,28 @@
 #         background-color: #07101a;
 #     }
 
-#     /* Style the sidebar */
+#     /* --- Sidebar Styling --- */
 #     [data-testid="stSidebar"] {
 #         background-color: #07101a;
 #         border-right: 1px solid #13303f;
 #     }
     
-#     /* Custom button style in sidebar */
+#     /* Sidebar button with glowing effect */
 #     [data-testid="stSidebar"] .stButton button {
 #         border-radius: 999px;
-#         border: 2px solid #add8e6;
+#         border: 1px solid #2c5970;
 #         background-color: transparent;
 #         color: #add8e6;
 #         transition: all 0.2s ease-in-out;
+#         box-shadow: 0 0 5px 0px rgba(0, 150, 255, 0.3);
 #     }
 #     [data-testid="stSidebar"] .stButton button:hover {
 #         background-color: rgba(173, 216, 230, 0.1);
 #         color: #fff;
-#         border-color: #fff;
+#         border-color: #00aaff;
+#         box-shadow: 0 0 10px 2px rgba(0, 150, 255, 0.6);
 #     }
-
+    
 #     /* Status badge styling */
 #     .status-badge {
 #         display: block; padding: 8px; border-radius: 20px;
@@ -100,7 +108,24 @@
 #     }
 #     .status-ready { background-color: rgba(25, 195, 125, 0.1); color: #19c37d; }
 #     .status-not-ready { background-color: rgba(255, 102, 51, 0.1); color: #ff6633; }
-
+    
+#     /* --- Main Chat Interface Styling --- */
+#     /* Chat message styling with animation and glow */
+#     [data-testid="stChatMessage"] {
+#         animation: fadeIn 0.5s ease-in-out;
+#         border-radius: 10px;
+#         border: 1px solid #13303f;
+#         background-color: #0a1929;
+#         box-shadow: 0 0 8px 1px rgba(0, 150, 255, 0.15);
+#         margin: 10px 0;
+#     }
+    
+#     /* Increase size of the chat input box */
+#     [data-testid="stChatInput"] textarea {
+#         min-height: 10px;
+#         font-size: 1.1em;
+#          color: #FFFFFF;
+#     }
 # </style>
 # """
 
@@ -164,10 +189,6 @@
 #         num_elements = len(meta["id2doc"])
 #         obj.index.load_index(index_path, max_elements=num_elements)
         
-#         # *** BUG FIX IS HERE ***
-#         # This crucial line prepares the loaded index for searching.
-#         # It sets the 'ef' parameter, which controls search accuracy and performance.
-#         # This resolves the "Cannot return the results in a contigious 2D array" error.
 #         obj.index.set_ef(50) 
         
 #         obj.id2doc = meta["id2doc"]
@@ -175,7 +196,6 @@
 
 #     def similarity_search(self, query, k, embedding):
 #         qvec = np.array([embedding.embed_query(query)], dtype=np.float32)
-#         # Ensure k is not greater than the number of elements in the index
 #         num_elements = self.index.get_current_count()
 #         if k > num_elements:
 #             k = num_elements
@@ -286,8 +306,15 @@
 #             time.sleep(1)
 #             st.rerun()
 
-#     # --- Main Chat Interface ---
-#     st.title("Ask Your Documents")
+#     # --- Main Chat Interface (with Enhanced Title) ---
+#     st.markdown("""
+#     <div style="text-align: center; margin-bottom: 20px;">
+#         <h1 style="font-size: 3em; font-weight: 700; color: #FFFFFF;">
+#             <span style="margin-right: 15px;">📄</span>Chat With Your Documents
+#         </h1>
+#     </div>
+#     """, unsafe_allow_html=True)
+
 
 #     for msg in st.session_state.messages:
 #         with st.chat_message(msg["role"]):
@@ -315,6 +342,7 @@
 
 # if __name__ == "__main__":
 #     main()
+
 import os
 import time
 import shutil
@@ -437,11 +465,11 @@ UI_STYLES = """
         margin: 10px 0;
     }
     
-    /* Increase size of the chat input box */
+    /* Increase size and set text color of the chat input box */
     [data-testid="stChatInput"] textarea {
-        min-height: 10px;
+        min-height: 100px;
         font-size: 1.1em;
-         color: #FFFFFF;
+        color: #FFFFFF; /* This line makes the input text visible */
     }
 </style>
 """
@@ -564,6 +592,16 @@ def generate_answer(docs, question, google_api_key):
                 continue
     return "No generation model is available or all models failed.", None
 
+def format_chat_history(messages):
+    """Formats the chat history for downloading."""
+    chat_str = "Chat History\n"
+    chat_str += "="*20 + "\n\n"
+    for msg in messages:
+        role = "User" if msg["role"] == "user" else "Assistant"
+        chat_str += f"{role}:\n{msg['content']}\n\n"
+        chat_str += "-"*20 + "\n\n"
+    return chat_str
+
 # ---------- Main Application Logic ----------
 def main():
     st.markdown(UI_STYLES, unsafe_allow_html=True)
@@ -615,6 +653,16 @@ def main():
             st.session_state.messages = []
             st.rerun()
 
+        if st.session_state.messages:
+            chat_history_str = format_chat_history(st.session_state.messages)
+            st.download_button(
+                label="Download Chat",
+                data=chat_history_str,
+                file_name=f"chat_history_{time.strftime('%Y%m%d_%H%M%S')}.txt",
+                mime="text/plain",
+                use_container_width=True
+            )
+
         if st.session_state.vector_store_ready and st.button("Delete Documents", use_container_width=True):
             shutil.rmtree(HNSW_DIR, ignore_errors=True)
             st.session_state.vector_store_ready = False
@@ -652,13 +700,14 @@ def main():
                 answer, model = generate_answer(docs, prompt, google_api_key)
                 
                 if model:
-                    answer += f""
+                    answer += f"\n\n*Answered by: `{model}`*"
                 
                 st.markdown(answer)
         st.session_state.messages.append({"role": "assistant", "content": answer})
 
 if __name__ == "__main__":
     main()
+
 
 
 
