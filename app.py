@@ -276,285 +276,131 @@ def init_session_state():
 # ---------------------------
 MODERN_CSS = """
 <style>
-    /* Import Google Font */
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
-    
-    /* Global Styles */
-    * {
-        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-    }
-    
-    /* Main Background */
-    [data-testid="stAppViewContainer"] {
-        background: #f7f7f8;
-    }
-    
-    /* ========================================
-       SIDEBAR - COMPLETE FIX FOR VISIBILITY
-       ======================================== */
-    [data-testid="stSidebar"] {
+/* Import Google Font */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+/* Global Styles */
+* { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; }
+
+/* Main Background */
+[data-testid="stAppViewContainer"] { background: #f7f7f8; }
+
+/* ========================
+   FORCE SIDEBAR VISIBLE
+   ======================== */
+/* Primary selector used by Streamlit */
+[data-testid="stSidebar"],
+/* fallback selectors used by some Streamlit versions */
+aside[role="complementary"],
+/* handle both expanded and collapsed states explicitly */
+[data-testid="stSidebar"][aria-expanded="false"],
+[data-testid="stSidebar"][aria-expanded="true"] {
+    display: block !important;
+    visibility: visible !important;
+    transform: none !important;
+    width: 21rem !important;
+    min-width: 21rem !important;
+    max-width: 21rem !important;
+    position: relative !important;
+    left: 0 !important;
+    margin-left: 0 !important;
+    opacity: 1 !important;
+    z-index: 9999 !important;
+}
+
+/* Make sure the collapsed control (toggle) is visible and not overlapping */
+[data-testid="collapsedControl"] {
+    display: block !important;
+    visibility: visible !important;
+    color: #10a37f;
+    background: #ffffff;
+    border: 1px solid #e5e5e5;
+    border-radius: 8px;
+    padding: 8px;
+    z-index: 10000 !important;
+}
+
+/* Keep sidebar content readable */
+[data-testid="stSidebar"] *,
+[data-testid="stSidebar"] p,
+[data-testid="stSidebar"] span,
+[data-testid="stSidebar"] div,
+[data-testid="stSidebar"] label,
+[data-testid="stSidebar"] h1,
+[data-testid="stSidebar"] h2,
+[data-testid="stSidebar"] h3,
+[data-testid="stSidebar"] h4 {
+    color: #353740 !important;
+}
+
+/* Sidebar Markdown color fix (previous hex was invalid) */
+[data-testid="stSidebar"] .stMarkdown {
+    color: #353740 !important;
+}
+
+/* Make sure the sidebar buttons show text */
+[data-testid="stSidebar"] button { color: white !important; }
+
+/* Mobile: Make sidebar accessible (override responsive hiding) */
+@media (max-width: 768px) {
+    [data-testid="stSidebar"],
+    aside[role="complementary"] {
+        display: block !important;
+        visibility: visible !important;
+        width: 85vw !important;
+        max-width: 300px !important;
+        position: fixed !important;
+        left: 0 !important;
+        top: 0 !important;
+        height: 100vh !important;
+        overflow: auto !important;
+        z-index: 10000 !important;
         background: #ffffff !important;
-        border-right: 1px solid #e5e5e5;
-        display: block !important;
-        visibility: visible !important;
-        min-width: 21rem;
-        max-width: 21rem;
     }
-    
-    /* ALL Sidebar Text - Make it Dark and Visible */
-    [data-testid="stSidebar"] *,
-    [data-testid="stSidebar"] p,
-    [data-testid="stSidebar"] span,
-    [data-testid="stSidebar"] div,
-    [data-testid="stSidebar"] label,
-    [data-testid="stSidebar"] h1,
-    [data-testid="stSidebar"] h2,
-    [data-testid="stSidebar"] h3,
-    [data-testid="stSidebar"] h4 {
-        color: #353740 !important;
-    }
-    
-    /* Sidebar Markdown */
-    [data-testid="stSidebar"] .stMarkdown {
-        color: #62600 !important; /*changed*/
-    }
-    
-    /* File Uploader Text */
-    [data-testid="stFileUploader"] *,
-    [data-testid="stFileUploader"] label,
-    [data-testid="stFileUploader"] span,
-    [data-testid="stFileUploader"] p,
-    .uploadedFileName {
-        color: #353740 !important;
-    }
-    
-    /* Sidebar Buttons - Keep White Text */
-    [data-testid="stSidebar"] button {
-        color: white !important;
-    }
-    
-    /* Make sure sidebar toggle button is visible */
-    [data-testid="collapsedControl"] {
-        display: block !important;
-        visibility: visible !important;
-        color: #10a37f;
-        background: #ffffff;
-        border: 1px solid #e5e5e5;
-        border-radius: 8px;
-        padding: 8px;
-    }
-    
-    /* Ensure sidebar stays expanded */
-    [data-testid="stSidebar"][aria-expanded="true"] {
-        display: block !important;
-        min-width: 21rem;
-        max-width: 21rem;
-    }
-    
-    /* Mobile: Make sidebar accessible */
-    @media (max-width: 768px) {
-        [data-testid="stSidebar"] {
-            display: block !important;
-            visibility: visible !important;
-            width: 85vw;
-            max-width: 300px;
-        }
-        
-        [data-testid="collapsedControl"] {
-            background: #10a37f;
-            border-radius: 8px;
-        }
-    }
-    
-    /* Hide Streamlit branding */
-    MainMenu {visibility: hidden;}
-    footer {visibility: hidden;}
-    header {visibility: hidden;}
-    
-    /* Chat Container */
-    .chat-container {
-        max-width: 800px;
-        margin: 0 auto;
-        padding: 20px;
-    }
-    
-    /* Message Bubbles */
-    .message {
-        display: flex;
-        margin-bottom: 24px;
-        animation: fadeIn 0.3s ease-in;
-    }
-    
-    @keyframes fadeIn {
-        from { opacity: 0; transform: translateY(10px); }
-        to { opacity: 1; transform: translateY(0); }
-    }
-    
-    .message.user {
-        justify-content: flex-end;
-    }
-    
-    .message-content {
-        max-width: 80%;
-        padding: 12px 16px;
-        border-radius: 18px;
-        line-height: 1.5;
-        word-wrap: break-word;
-    }
-    
-    .message.user .message-content {
-        background: #10a37f;
-        color: white;
-        border-bottom-right-radius: 4px;
-    }
-    
-    .message.assistant .message-content {
-        background: #ffffff;
-        color: #353740;
-        border: 1px solid #e5e5e5;
-        border-bottom-left-radius: 4px;
-    }
-    
-    /* Avatar */
-    .avatar {
-        width: 32px;
-        height: 32px;
-        border-radius: 50%;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-weight: 600;
-        font-size: 14px;
-        margin: 0 12px;
-        flex-shrink: 0;
-    }
-    
-    .message.user .avatar {
-        background: #10a37f;
-        color: white;
-        order: 2;
-    }
-    
-    .message.assistant .avatar {
-        background: #19c37d;
-        color: white;
-    }
-    
-    /* Input Area */
-    .stTextArea textarea {
-        border-radius: 12px;
-        border: 1px solid #d9d9e3;
-        padding: 12px 16px;
-        font-size: 15px;
-        resize: none;
-        color: white;
-    }
-    
-    .stTextArea textarea:focus {
-        border-color: #10a37f;
-        box-shadow: 0 0 0 1px #10a37f;
-    }
-    
-    /* Buttons */
-    .stButton > button {
-        background: #10a37f;
-        color: white;
-        border: none;
-        border-radius: 8px;
-        padding: 10px 24px;
-        font-weight: 500;
-        transition: all 0.2s;
-    }
-    
-    .stButton > button:hover {
-        background: #0d8a6a;
-        box-shadow: 0 2px 8px rgba(16, 163, 127, 0.3);
-    }
-    
-    /* File Uploader */
-    [data-testid="stFileUploader"] {
-        border: 2px dashed #d9d9e3;
-        border-radius: 12px;
-        padding: 20px;
-        background: #353740;/*white*/
-    }
-    
-    /* Success/Error Messages */
-    .stSuccess, .stError, .stWarning, .stInfo {
-        border-radius: 8px;
-        padding: 12px 16px;
-        margin: 10px 0;
-    }
-    
-    /* Expander */
-    .streamlit-expanderHeader {
-        background: #f9f9fb;
-        border-radius: 8px;
-        padding: 12px;
-        font-weight: 500;
-        color: #353740;
-    }
-    
-    /* Title - UPDATED COLOR */
-    h1 {
-        color: #0d8a6a !important;
-        font-weight: 600;
-        font-size: 32px;
-        margin-bottom: 8px;
-    }
-    
-    /* Subtitle */
-    .subtitle {
-        color: #6e6e80;
-        font-size: 16px;
-        margin-bottom: 32px;
-    }
-    
-    /* Welcome Message */
-    .welcome-container {
-        text-align: center;
-        padding: 60px 20px;
-        max-width: 600px;
-        margin: 0 auto;
-    }
-    
-    .welcome-title {
-        font-size: 28px;
-        font-weight: 600;
-        color: #353740;
-        margin-bottom: 16px;
-    }
-    
-    .welcome-text {
-        font-size: 16px;
-        color: #6e6e80;
-        line-height: 1.6;
-    }
-    
-    /* Status Badge */
-    .status-badge {
-        display: inline-block;
-        padding: 8px 16px;
-        border-radius: 20px;
-        font-size: 14px;
-        font-weight: 600;
-        margin: 8px 0;
-        text-align: center;
-    }
-    
-    .status-ready {
-        background: #d1f4e0;
-        color: #0d8a6a;
-        border: 2px solid #10a37f;
-    }
-    
-    .status-not-ready {
-        background: #fee;
-        color: #d63;
-        border: 2px solid #faa;
-    }
+}
+
+/* Hide Streamlit branding reliably */
+#MainMenu, .css-1lcbmhc, [data-testid="stHeader"], header { visibility: hidden !important; height: 0 !important; margin: 0 !important; padding: 0 !important; }
+
+/* Chat Container (main UI) */
+.chat-container { max-width: 800px; margin: 0 auto; padding: 20px; }
+
+/* Message Bubbles */
+.message { display: flex; margin-bottom: 24px; animation: fadeIn 0.3s ease-in; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+.message.user { justify-content: flex-end; }
+.message-content { max-width: 80%; padding: 12px 16px; border-radius: 18px; line-height: 1.5; word-wrap: break-word; }
+.message.user .message-content { background: #10a37f; color: white; border-bottom-right-radius: 4px; }
+.message.assistant .message-content { background: #ffffff; color: #353740; border: 1px solid #e5e5e5; border-bottom-left-radius: 4px; }
+
+/* Avatars */
+.avatar { width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 14px; margin: 0 12px; flex-shrink: 0; }
+.message.user .avatar { background: #10a37f; color: white; order: 2; }
+.message.assistant .avatar { background: #19c37d; color: white; }
+
+/* Input Area - ensure text is readable (was white on white) */
+.stTextArea textarea { border-radius: 12px; border: 1px solid #d9d9e3; padding: 12px 16px; font-size: 15px; resize: none; color: #353740 !important; background: #fff !important; }
+.stTextArea textarea:focus { border-color: #10a37f; box-shadow: 0 0 0 1px #10a37f; }
+
+/* Buttons */
+.stButton > button { background: #10a37f; color: white; border: none; border-radius: 8px; padding: 10px 24px; font-weight: 500; transition: all 0.2s; }
+.stButton > button:hover { background: #0d8a6a; box-shadow: 0 2px 8px rgba(16, 163, 127, 0.3); }
+
+/* File Uploader - keep contrast for text */
+[data-testid="stFileUploader"] { border: 2px dashed #d9d9e3; border-radius: 12px; padding: 20px; background: #ffffff !important; color: #353740 !important; }
+
+/* Status badge */
+.status-badge { display: inline-block; padding: 8px 16px; border-radius: 20px; font-size: 14px; font-weight: 600; margin: 8px 0; text-align: center; }
+.status-ready { background: #d1f4e0; color: #0d8a6a; border: 2px solid #10a37f; }
+.status-not-ready { background: #fee; color: #d63; border: 2px solid #faa; }
+
+/* small responsive safety */
+@media (max-width: 500px) {
+  [data-testid="stAppViewContainer"] { padding-left: 0 !important; }
+}
 </style>
 """
+
 
 
 # ---------------------------
@@ -801,6 +647,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
