@@ -64,7 +64,7 @@ UI_STYLES = """
     }
 
     /* Hide default Streamlit elements */
-    #MainMenu, header, footer, .stDeployButton { 
+    #MainMenu, footer, .stDeployButton { 
         visibility: hidden; 
     }
     
@@ -315,5 +315,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
