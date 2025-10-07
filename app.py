@@ -308,13 +308,14 @@ def main():
                 answer, model = generate_answer(docs, prompt, google_api_key)
                 
                 if model:
-                    answer += f"\n\n*Answered by: `{model}`*"
+                    answer += f""
                 
                 st.markdown(answer)
         st.session_state.messages.append({"role": "assistant", "content": answer})
 
 if __name__ == "__main__":
     main()
+
 
 
 
