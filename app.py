@@ -367,7 +367,7 @@ MODERN_CSS = """
     }
     
     /* Hide Streamlit branding */
-    #MainMenu {visibility: hidden;}
+    MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     header {visibility: hidden;}
     
@@ -447,7 +447,7 @@ MODERN_CSS = """
         padding: 12px 16px;
         font-size: 15px;
         resize: none;
-        color: #E62600;
+        color: white;
     }
     
     .stTextArea textarea:focus {
@@ -476,7 +476,7 @@ MODERN_CSS = """
         border: 2px dashed #d9d9e3;
         border-radius: 12px;
         padding: 20px;
-        background: White;/*white*/
+        background: #353740;/*white*/
     }
     
     /* Success/Error Messages */
@@ -801,6 +801,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
