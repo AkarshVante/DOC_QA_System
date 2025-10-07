@@ -311,7 +311,7 @@ MODERN_CSS = """
     [data-testid="stSidebar"] h2,
     [data-testid="stSidebar"] h3,
     [data-testid="stSidebar"] h4 {
-        color: #353740 !important;
+        color: #E62600 !important;
     }
     
     /* Sidebar Markdown */
@@ -325,7 +325,7 @@ MODERN_CSS = """
     [data-testid="stFileUploader"] span,
     [data-testid="stFileUploader"] p,
     .uploadedFileName {
-        color: #353740 !important;
+        color: #E62600 !important;
     }
     
     /* Sidebar Buttons - Keep White Text */
@@ -410,7 +410,7 @@ MODERN_CSS = """
     
     .message.assistant .message-content {
         background: #ffffff;
-        color: #353740;
+        color: E62600;
         border: 1px solid #e5e5e5;
         border-bottom-left-radius: 4px;
     }
@@ -447,7 +447,7 @@ MODERN_CSS = """
         padding: 12px 16px;
         font-size: 15px;
         resize: none;
-        color: #353740;
+        color: #E62600;
     }
     
     .stTextArea textarea:focus {
@@ -476,7 +476,7 @@ MODERN_CSS = """
         border: 2px dashed #d9d9e3;
         border-radius: 12px;
         padding: 20px;
-        background: #f9f9fb;
+        background: #E62600;/*white*/
     }
     
     /* Success/Error Messages */
@@ -497,7 +497,7 @@ MODERN_CSS = """
     
     /* Title - UPDATED COLOR */
     h1 {
-        color: #0d8a6a;
+        color: #0d8a6a !important;
         font-weight: 600;
         font-size: 32px;
         margin-bottom: 8px;
@@ -505,7 +505,7 @@ MODERN_CSS = """
     
     /* Subtitle */
     .subtitle {
-        color: #6e6e80;
+        color: #E62600;/*#6e6e80*/
         font-size: 16px;
         margin-bottom: 32px;
     }
@@ -801,6 +801,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
