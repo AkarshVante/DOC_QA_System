@@ -1,5 +1,5 @@
 
-# app.py
+# app.pye
 import os
 import time
 import datetime
@@ -410,7 +410,7 @@ MODERN_CSS = """
     
     .message.assistant .message-content {
         background: #ffffff;
-        color: E62600;
+        color: #353740;
         border: 1px solid #e5e5e5;
         border-bottom-left-radius: 4px;
     }
@@ -505,7 +505,7 @@ MODERN_CSS = """
     
     /* Subtitle */
     .subtitle {
-        color: #E62600;/*#6e6e80*/
+        color: #6e6e80;
         font-size: 16px;
         margin-bottom: 32px;
     }
@@ -801,6 +801,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
