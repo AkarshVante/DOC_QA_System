@@ -144,6 +144,7 @@ class LocalHNSW:
         obj = cls(dim=dim)
         obj.index.init_index(max_elements=len(texts), ef_construction=200, M=16)
         obj.index.add_items(vectors, np.arange(len(texts), dtype=np.int64))
+        obj.index.set_ef(50) # Set ef for search
         obj.id2doc = {i: Document(page_content=t) for i, t in enumerate(texts)}
         return obj
 
@@ -160,17 +161,28 @@ class LocalHNSW:
         with open(meta_path, "rb") as f:
             meta = pickle.load(f)
         obj = cls(dim=meta["dim"])
-        
-        # *** BUG FIX IS HERE ***
-        # The key is to pass max_elements when loading the index.
-        # This tells hnswlib how much memory to allocate and prevents the crash.
         num_elements = len(meta["id2doc"])
         obj.index.load_index(index_path, max_elements=num_elements)
+        
+        # *** BUG FIX IS HERE ***
+        # This crucial line prepares the loaded index for searching.
+        # It sets the 'ef' parameter, which controls search accuracy and performance.
+        # This resolves the "Cannot return the results in a contigious 2D array" error.
+        obj.index.set_ef(50) 
+        
         obj.id2doc = meta["id2doc"]
         return obj
 
     def similarity_search(self, query, k, embedding):
         qvec = np.array([embedding.embed_query(query)], dtype=np.float32)
+        # Ensure k is not greater than the number of elements in the index
+        num_elements = self.index.get_current_count()
+        if k > num_elements:
+            k = num_elements
+        
+        if k == 0:
+            return [] # Avoids error if index is empty
+            
         labels, _ = self.index.knn_query(qvec, k=k)
         return [self.id2doc[int(i)] for i in labels[0]]
 
@@ -303,4 +315,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
