@@ -225,26 +225,41 @@ def generate_answer(prompt_template, docs, question, google_api_key=None):
     
     return None, None, "All models failed to generate a response."
 
+
 def clean_answer(text):
-    """Clean up the model's response to make it presentable"""
-    # Remove common artifacts
+    """Clean up and format model's response with natural bullet formatting."""
+    # Remove artifacts
     text = re.sub(r"content=(['\"])(.+?)\1", r"\2", text, flags=re.DOTALL)
     text = re.sub(r"\b(additional_kwargs|response_metadata|usage_metadata|id)=\{[^}]*\}", "", text, flags=re.DOTALL)
-    
-    # Clean up formatting
     text = text.replace("**", "").strip()
-    
-    # Remove duplicate consecutive lines
-    lines = text.split("\n")
-    cleaned_lines = []
-    prev_line = None
-    for line in lines:
-        line = line.strip()
-        if line != prev_line:
-            cleaned_lines.append(line)
-            prev_line = line
-    
-    return "\n".join(cleaned_lines).strip()
+
+    # Remove Markdown/number bullets
+    text = re.sub(r"^[\*\-\u2022]\s+", "", text, flags=re.MULTILINE)
+    text = re.sub(r"^\s*\d+[\.\)]\s+", "", text, flags=re.MULTILINE)
+
+    # Split into lines and clean up whitespace
+    lines = [ln.strip() for ln in text.split("\n") if ln.strip()]
+
+    # Combine single sentences that were split weirdly by model
+    cleaned = []
+    for ln in lines:
+        if re.match(r"^(and|also|in addition|moreover|furthermore)", ln, flags=re.I) and cleaned:
+            cleaned[-1] += " " + ln[0].lower() + ln[1:]
+        else:
+            cleaned.append(ln)
+
+    # If it looks like multiple project entries or list-like items, add bullets
+    if len(cleaned) > 1:
+        text = "\n".join([f"• {ln}" for ln in cleaned])
+    else:
+        text = cleaned[0] if cleaned else ""
+
+    # Normalize spacing and punctuation
+    text = re.sub(r"\s{2,}", " ", text)
+    text = re.sub(r"\n{3,}", "\n\n", text).strip()
+
+    return text
+
 
 # ---------------------------
 # Session State
@@ -785,6 +800,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
