@@ -243,46 +243,47 @@ def init_session_state():
 # ---------- UI & Styling ----------
 UI_STYLES = """
 <style>
-/* Base styling */
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
-body {
+html, body, [class*="st-"] {
     font-family: 'Inter', sans-serif;
-    background-color: #07101a;
-    color: #e6eef6;
 }
-/* Make sidebar permanent and hide collapse controls */
-[data-testid="stSidebar"], [data-testid="stSidebar"] > div:first-child {
-    background: #07101a;
+body {
+    background-color: #07101a;
+}
+/* Ensure sidebar is always visible and set its style */
+[data-testid="stSidebar"] {
+    background-color: #07101a;
     border-right: 1px solid #13303f;
 }
-div[data-testid="collapsedControl"] {
-    visibility: hidden;
-    display: none;
-}
-/* Main Menu and Header hiding */
+/* Hide Streamlit's default elements */
 #MainMenu, header, footer {
     visibility: hidden;
 }
+.stDeployButton {
+    display: none;
+}
+/* Hide the sidebar collapse control */
+button[data-testid="baseButton-header"] {
+    display: none;
+}
 /* Custom styling for sidebar buttons */
-[data-testid="stSidebar"] button {
+[data-testid="stSidebar"] .stButton button {
     border-radius: 999px !important;
-    border: 2px solid #add8e6 !important; /* Light blue border */
+    border: 2px solid #add8e6 !important;
     background-color: transparent !important;
     color: #add8e6 !important;
     transition: all 0.2s ease-in-out;
+    width: 100%;
 }
-[data-testid="stSidebar"] button:hover {
+[data-testid="stSidebar"] .stButton button:hover {
     background-color: rgba(173, 216, 230, 0.1) !important;
     color: #fff !important;
     border-color: #fff !important;
 }
-[data-testid="stSidebar"] button:focus {
-    box-shadow: 0 0 0 2px rgba(173, 216, 230, 0.5) !important;
-}
 /* Status badge styling */
 .status-badge {
-    display: inline-block; padding: 8px 16px; border-radius: 20px;
-    font-size: 14px; font-weight: 600; margin: 8px 0; text-align: center;
+    display: block; padding: 8px 16px; border-radius: 20px;
+    font-size: 14px; font-weight: 600; margin: 12px 0; text-align: center;
 }
 .status-ready { background: rgba(25, 195, 125, 0.1); color: #19c37d; border: 1px solid rgba(25, 195, 125, 0.2); }
 .status-not-ready { background: rgba(255, 102, 51, 0.1); color: #ff6633; border: 1px solid rgba(255, 102, 51, 0.2); }
@@ -307,8 +308,8 @@ def main():
     with st.sidebar:
         st.markdown("## 📄 ChatPDF")
         st.markdown(
-            "Upload your PDF documents and ask questions about their content. "
-            "Your files are processed locally."
+            "Upload PDFs and ask questions about their content. "
+            "Your files are processed locally on this server."
         )
 
         badge_type = "ready" if st.session_state.vector_store_ready else "not-ready"
@@ -316,19 +317,21 @@ def main():
         st.markdown(f'<div class="status-badge status-{badge_type}">Status: {badge_text}</div>', unsafe_allow_html=True)
 
         st.markdown("---")
+        
+        # --- This is the PDF Uploader ---
         uploaded_files = st.file_uploader(
-            "Upload PDF Files",
+            "**1. Upload Your PDFs**",
             accept_multiple_files=True,
             type=['pdf'],
-            help="Upload one or more PDF files."
+            help="Drag and drop one or more PDF files here."
         )
 
-        if st.button("🔄 Process Documents", use_container_width=True, disabled=not uploaded_files):
+        if st.button("2. Process Documents", use_container_width=True, disabled=not uploaded_files):
             with st.spinner("Processing documents... This may take a moment."):
                 try:
                     raw_text = get_pdf_text(uploaded_files)
                     if not raw_text.strip():
-                        st.error("No readable text found in the PDFs.")
+                        st.error("No readable text was found in the provided PDFs.")
                     else:
                         text_chunks = get_text_chunks(raw_text)
                         st.session_state.text_chunks = text_chunks
@@ -341,7 +344,7 @@ def main():
                             st.success(f"✅ Indexed {len(text_chunks)} chunks with vector search.")
                         else:
                             st.session_state.use_vector_search = False
-                            st.info("Vector libraries not found. Using keyword search as a fallback.")
+                            st.info("Vector libraries not installed. Using keyword search fallback.")
                         
                         st.session_state.vector_store_ready = True
                 except Exception as e:
@@ -349,16 +352,18 @@ def main():
             st.rerun()
 
         st.markdown("---")
-        if st.button("🗑️ Clear Conversation", use_container_width=True):
+        st.markdown("**Manage Session**")
+        if st.button("Clear Conversation", use_container_width=True):
             st.session_state.messages = []
             st.rerun()
 
-        if st.session_state.vector_store_ready and st.button("❌ Delete Documents", use_container_width=True):
+        if st.session_state.vector_store_ready and st.button("Delete Documents", use_container_width=True):
             if os.path.isdir(HNSW_DIR):
                 shutil.rmtree(HNSW_DIR)
             st.session_state.vector_store_ready = False
             st.session_state.use_vector_search = False
             st.session_state.text_chunks = []
+            st.session_state.messages = []
             st.success("Documents and index deleted.")
             time.sleep(1)
             st.rerun()
@@ -372,7 +377,9 @@ def main():
             st.markdown(message["content"])
 
     # Chat input and message handling
-    prompt = st.chat_input("Ask a question about your documents...", disabled=not st.session_state.vector_store_ready)
+    prompt_placeholder = "Upload and process documents to begin..." if not st.session_state.vector_store_ready else "Ask a question..."
+    prompt = st.chat_input(prompt_placeholder, disabled=not st.session_state.vector_store_ready)
+    
     if prompt:
         st.session_state.messages.append({"role": "user", "content": prompt})
         with st.chat_message("user"):
@@ -402,3 +409,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
