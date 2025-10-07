@@ -311,12 +311,12 @@ MODERN_CSS = """
     [data-testid="stSidebar"] h2,
     [data-testid="stSidebar"] h3,
     [data-testid="stSidebar"] h4 {
-        color: #E62600 !important;
+        color: #353740 !important;
     }
     
     /* Sidebar Markdown */
     [data-testid="stSidebar"] .stMarkdown {
-        color: #353740 !important;
+        color: #62600 !important; /*changed*/
     }
     
     /* File Uploader Text */
@@ -325,7 +325,7 @@ MODERN_CSS = """
     [data-testid="stFileUploader"] span,
     [data-testid="stFileUploader"] p,
     .uploadedFileName {
-        color: #E62600 !important;
+        color: #353740 !important;
     }
     
     /* Sidebar Buttons - Keep White Text */
@@ -367,7 +367,7 @@ MODERN_CSS = """
     }
     
     /* Hide Streamlit branding */
-    #MainMenu {visibility: hidden;}
+    /* #MainMenu {visibility: hidden;} */
     footer {visibility: hidden;}
     header {visibility: hidden;}
     
@@ -801,6 +801,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
