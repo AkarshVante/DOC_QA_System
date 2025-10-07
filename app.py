@@ -60,10 +60,22 @@ UI_STYLES = """
         font-family: 'Inter', sans-serif;
     }
 
-    /* --- PERMANENT FIX: Hide the sidebar collapse button --- */
-    [data-testid="stSidebarNavCollapseButton"] {
-        display: none;
+    /* --- MORE AGGRESSIVE PERMANENT SIDEBAR FIX --- */
+    /* This set of rules ensures the sidebar is always visible and cannot be closed,
+       addressing environments where the simpler method fails. */
+
+    /* 1. Force the sidebar to always be visible */
+    [data-testid="stSidebar"] {
+        display: block !important;
+        transform: none !important; /* Prevent sliding out of view */
+        transition: none !important; /* Disable collapse animation */
     }
+
+    /* 2. Hide the collapse button using multiple selectors for compatibility */
+    [data-testid="stSidebarNavCollapseButton"], [data-testid="collapsedControl"] {
+        display: none !important;
+    }
+
 
     /* Hide other default Streamlit elements */
     header [data-testid="stToolbar"], #MainMenu, footer, .stDeployButton {
@@ -314,3 +326,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
