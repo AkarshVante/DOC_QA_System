@@ -467,8 +467,8 @@ UI_STYLES = """
     
     /* Increase size and set text color of the chat input box */
     [data-testid="stChatInput"] textarea {
-        min-height: 100px;
-        font-size: 0.7em;
+        min-height: 10px;
+        font-size: 1.1em;
         color: #FFFFFF; /* This line makes the input text visible */
     }
 </style>
@@ -707,6 +707,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
