@@ -409,11 +409,11 @@ UI_STYLES = """
         from { opacity: 0; transform: translateY(10px); }
         to { opacity: 1; transform: translateY(0); }
     }
-
+    
     html, body, [class*="st-"] {
         font-family: 'Inter', sans-serif;
     }
-
+    
     /* Hide other default Streamlit elements */
     #MainMenu, footer, .stDeployButton {
         visibility: hidden;
@@ -423,15 +423,16 @@ UI_STYLES = """
     .stApp {
         background-color: #07101a;
     }
-
+    
     /* --- Sidebar Styling --- */
     [data-testid="stSidebar"] {
         background-color: #07101a;
         border-right: 1px solid #13303f;
     }
     
-    /* Sidebar button with glowing effect */
-    [data-testid="stSidebar"] .stButton button {
+    /* Sidebar button with glowing effect for all button types (st.button and st.download_button) */
+    [data-testid="stSidebar"] .stButton button,
+    [data-testid="stSidebar"] [data-testid="stDownloadButton"] button {
         border-radius: 999px;
         border: 1px solid #2c5970;
         background-color: transparent;
@@ -439,7 +440,8 @@ UI_STYLES = """
         transition: all 0.2s ease-in-out;
         box-shadow: 0 0 5px 0px rgba(0, 150, 255, 0.3);
     }
-    [data-testid="stSidebar"] .stButton button:hover {
+    [data-testid="stSidebar"] .stButton button:hover,
+    [data-testid="stSidebar"] [data-testid="stDownloadButton"] button:hover {
         background-color: rgba(173, 216, 230, 0.1);
         color: #fff;
         border-color: #00aaff;
@@ -471,6 +473,7 @@ UI_STYLES = """
         font-size: 1.1em;
         color: #FFFFFF; /* This line makes the input text visible */
     }
+
 </style>
 """
 
@@ -707,6 +710,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
