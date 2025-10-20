@@ -1,6 +1,6 @@
 streamlit
 PyPDF2
-langchain>=0.3.0
+langchain 
 langchain-core
 langchain-google-genai
 langchain-text-splitters
@@ -10,4 +10,4 @@ faiss-cpu
 sentence-transformers
 tiktoken
 python-dotenv
-
+langchain-huggingface
