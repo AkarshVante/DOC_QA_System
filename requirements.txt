@@ -1,10 +1,12 @@
 streamlit
 PyPDF2
 langchain
+langchain-core
 langchain-google-genai
-google-generativeai
+langchain-text-splitters
 langchain-community
+google-generativeai
 faiss-cpu
 python-dotenv
 sentence-transformers
-langchain-text-splitters
+tiktoken
