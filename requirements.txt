@@ -1,13 +1,14 @@
 streamlit
 python-dotenv
 pypdf2
-langchain
-langchain-core
-langchain-community
-langchain-google-genai
-langchain-huggingface
-langchain-text-splitters
-google-generativeai
 faiss-cpu
 sentence-transformers
 tiktoken
+# Force newer versions to ensure Pydantic v2 compatibility
+langchain>=0.3.0
+langchain-core>=0.3.0
+langchain-community>=0.3.0
+langchain-text-splitters>=0.3.0
+langchain-google-genai>=2.0.0
+langchain-huggingface>=0.1.0
+google-generativeai
