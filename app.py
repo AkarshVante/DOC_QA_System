@@ -42,7 +42,7 @@ except Exception:
 # langchain-community FAISS & embeddings (local sentence-transformer embeddings)
 try:
     from langchain_community.vectorstores import FAISS
-    from langchain_community.embeddings import SentenceTransformerEmbeddings
+    from langchain_huggingface import HuggingFaceEmbeddings
     LCC_FAISS_AVAILABLE = True
 except Exception:
     FAISS = None
@@ -412,4 +412,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
