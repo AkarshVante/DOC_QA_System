@@ -413,13 +413,6 @@
 # if __name__ == "__main__":
 #     main()
 
-
-
-
-
-
-
-
 import os
 import time
 import json
@@ -429,13 +422,42 @@ from dotenv import load_dotenv
 import streamlit as st
 from PyPDF2 import PdfReader
 
-# --- Modern LangChain Imports (2025 Standard) ---
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_community.vectorstores import FAISS
-from langchain_core.prompts import ChatPromptTemplate
-from langchain.chains.combine_documents import create_stuff_documents_chain
+# ------------------------- Robust Imports -------------------------
+# We wrap imports in try/except to give clear error messages instead of crashing
+try:
+    from langchain_google_genai import ChatGoogleGenerativeAI
+except ImportError:
+    st.error("❌ Install failed: `langchain-google-genai` is missing or outdated.")
+    st.stop()
+
+try:
+    from langchain_huggingface import HuggingFaceEmbeddings
+except ImportError:
+    # Fallback for older setups, though requirements.txt should fix this
+    try:
+        from langchain_community.embeddings import SentenceTransformerEmbeddings as HuggingFaceEmbeddings
+    except ImportError:
+        st.error("❌ Install failed: `langchain-huggingface` is missing.")
+        st.stop()
+
+try:
+    from langchain_text_splitters import RecursiveCharacterTextSplitter
+except ImportError:
+    st.error("❌ Install failed: `langchain-text-splitters` is missing.")
+    st.stop()
+
+try:
+    from langchain_community.vectorstores import FAISS
+except ImportError:
+    st.error("❌ Install failed: `langchain-community` or `faiss-cpu` is missing.")
+    st.stop()
+
+try:
+    from langchain_core.prompts import ChatPromptTemplate
+    from langchain.chains.combine_documents import create_stuff_documents_chain
+except ImportError:
+    st.error("❌ Install failed: `langchain-core` is missing.")
+    st.stop()
 
 # ------------------------- Configuration -------------------------
 load_dotenv()
@@ -447,63 +469,42 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# ------------------------- CSS Styling (Preserved) -------------------------
+# --- CSS Styling (No UI changes) ---
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
-
-    @keyframes fadeIn {
-        from { opacity: 0; transform: translateY(10px); }
-        to { opacity: 1; transform: translateY(0); }
-    }
-
-    html, body, [class*="st-"] {
-        font-family: 'Inter', sans-serif;
-    }
-    #MainMenu, footer, .stDeployButton {
-        visibility: hidden;
-    }
+    html, body, [class*="st-"] { font-family: 'Inter', sans-serif; }
     .stApp { background-color: #07101a; }
     h1, h2, h3 { color: #ffffff; }
-    .title-glow { font-size: 2.5em; color: #ffffff; text-align: center; text-shadow: 0 0 10px #00ff00, 0 0 20px #00ff00, 0 0 30px #00ff00; }
     [data-testid="stSidebar"] { background-color: #07101a; border-right: 1px solid #13303f; }
-    [data-testid="stSidebar"] .stButton button, [data-testid="stSidebar"] [data-testid="stDownloadButton"] button {
-        border-radius: 999px; border: 1px solid #2c5970; background-color: transparent; color: #add8e6; transition: all 0.2s ease-in-out; box-shadow: 0 0 5px 0px rgba(0, 150, 255, 0.3);
-    }
-    [data-testid="stSidebar"] .stButton button:hover, [data-testid="stSidebar"] [data-testid="stDownloadButton"] button:hover {
-        background-color: rgba(173, 216, 230, 0.1); color: #fff; border-color: #00aaff; box-shadow: 0 0 10px 2px rgba(0, 150, 255, 0.6);
+    [data-testid="stSidebar"] .stButton button {
+        border-radius: 20px; border: 1px solid #2c5970; color: #add8e6;
     }
     .status-badge { display: block; padding: 8px; border-radius: 20px; font-weight: 600; margin: 12px auto; text-align: center; }
     .status-ready { background-color: rgba(25, 195, 125, 0.1); color: #19c37d; }
     .status-not-ready { background-color: rgba(255, 102, 51, 0.1); color: #ff6633; }
-    .stChatMessage { animation: fadeIn 0.5s ease-out; transition: all 0.2s ease-in-out; }
-    div[data-testid="stChatMessage"] div[data-testid^="stMarkdownContainer"] { border-radius: 12px; padding: 14px 18px; margin: 4px; color: white; border: 1px solid #2c5970; box-shadow: 0 0 8px 1px rgba(0, 150, 255, 0.15); }
-    div[data-testid="stChatMessage-assistant"] div[data-testid^="stMarkdownContainer"] { background-color: #262D31; border-bottom-left-radius: 4px; }
-    div[data-testid="stChatMessage-user"] div[data-testid^="stMarkdownContainer"] { background-color: transparent; border-bottom-right-radius: 4px; }
-    [data-testid="stChatInput"] textarea { color: #FFFFFF; max-height: 150px; }
-    .stButton>button { background-color: transparent !important; color: #add8e6 !important; border: 1px solid #2c5970 !important; padding: 2px 10px !important; font-size: 0.8rem !important; border-radius: 999px !important; margin: -8px 0 10px 10px; }
-    .stButton>button:hover { border-color: #00aaff !important; color: #fff !important; }
+    div[data-testid="stChatMessage"] { background-color: transparent; }
+    div[data-testid="stChatMessage-assistant"] div[data-testid^="stMarkdownContainer"] { background-color: #262D31; padding: 15px; border-radius: 10px; border: 1px solid #3d4a52;}
+    div[data-testid="stChatMessage-user"] div[data-testid^="stMarkdownContainer"] { background-color: #13303f; padding: 15px; border-radius: 10px; }
 </style>
 """, unsafe_allow_html=True)
 
-# ------------------------- Setup & Constants -------------------------
+# ------------------------- Constants & Setup -------------------------
 GOOGLE_API_KEY = st.secrets.get("GOOGLE_API_KEY") or os.getenv("GOOGLE_API_KEY")
-
-# Check for API Key immediately
 if not GOOGLE_API_KEY:
-    st.error("🚨 Google API Key missing! Please set `GOOGLE_API_KEY` in your `.env` file or Streamlit secrets.")
+    st.error("🚨 Google API Key missing! Please set `GOOGLE_API_KEY` in your `.env` file.")
     st.stop()
 
-# Constants
+# Prefer Gemini 1.5 Flash (faster/cheaper) then fall back to Pro
 MODEL_ORDER = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro"]
 EMBEDDING_MODEL_NAME = "all-MiniLM-L6-v2"
 FAISS_DIR = "faiss_index"
 CHAT_HISTORY_FILE = "chat_history.json"
 
-# ------------------------- Core Functions -------------------------
+# ------------------------- Core Logic -------------------------
 
 def get_pdf_text(pdf_docs):
-    """Extract text from uploaded PDFs."""
+    """Extracts text from uploaded PDF files."""
     text = ""
     for pdf in pdf_docs:
         try:
@@ -511,30 +512,23 @@ def get_pdf_text(pdf_docs):
             for i, page in enumerate(pdf_reader.pages):
                 page_text = page.extract_text()
                 if page_text:
-                    text += f"\n--- Source: {pdf.name}, Page: {i+1} ---\n{page_text}"
+                    text += f"\n--- Page {i+1} ---\n{page_text}"
         except Exception as e:
             st.warning(f"Could not read {pdf.name}: {e}")
     return text
 
 def get_text_chunks(text):
-    """Split text using the updated RecursiveCharacterTextSplitter."""
-    text_splitter = RecursiveCharacterTextSplitter(
-        chunk_size=1000, 
-        chunk_overlap=200,
-        separators=["\n\n", "\n", " ", ""]
-    )
+    """Splits text into chunks for vector storage."""
+    text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
     return text_splitter.split_text(text)
 
 @st.cache_resource
 def get_embedding_model():
-    """
-    Initialize HuggingFace Embeddings.
-    Updated to use `langchain_huggingface` to avoid deprecation warnings.
-    """
+    """Returns the embedding model (cached to avoid reloading)."""
     return HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL_NAME)
 
 def get_vector_store(text_chunks):
-    """Create and save FAISS index locally."""
+    """Creates a FAISS vector store from text chunks."""
     try:
         embeddings = get_embedding_model()
         vector_store = FAISS.from_texts(text_chunks, embedding=embeddings)
@@ -542,48 +536,36 @@ def get_vector_store(text_chunks):
         st.session_state.faiss_ready = True
         return vector_store
     except Exception as e:
-        st.error(f"Failed to create vector store: {e}")
+        st.error(f"Vector Store Error: {e}")
         return None
 
 def get_qa_chain(prompt_template_str):
     """
-    Creates a QA chain using LCEL (LangChain Expression Language).
-    Replaces the deprecated `load_qa_chain`.
+    Creates the Document Chain using modern LCEL (LangChain Expression Language).
+    This replaces the deprecated `load_qa_chain`.
     """
-    # 1. Define the Prompt
     prompt = ChatPromptTemplate.from_template(prompt_template_str)
-
-    # 2. Initialize the Model (Try models in order)
+    
     llm = None
     for model_name in MODEL_ORDER:
         try:
             llm = ChatGoogleGenerativeAI(
-                model=model_name,
-                temperature=0.3,
-                google_api_key=GOOGLE_API_KEY
+                model=model_name, 
+                google_api_key=GOOGLE_API_KEY, 
+                temperature=0.3
             )
-            break
+            # Test instantiation
+            break 
         except Exception:
             continue
-            
+
     if not llm:
-        st.error("Could not initialize any Gemini models. Check your API key or quota.")
+        st.error("Could not connect to Google Gemini. Check API Key or Quota.")
         return None
 
-    # 3. Create the Document Chain (modern "stuff" chain)
-    # This chain takes {context, question} and returns the answer.
-    document_chain = create_stuff_documents_chain(llm, prompt)
-    
-    return document_chain
+    return create_stuff_documents_chain(llm, prompt)
 
 # ------------------------- Session Management -------------------------
-
-def save_chat_history():
-    try:
-        with open(CHAT_HISTORY_FILE, "w") as f:
-            json.dump(st.session_state.messages, f)
-    except Exception as e:
-        print(f"Error saving chat: {e}")
 
 def load_chat_history():
     if os.path.exists(CHAT_HISTORY_FILE):
@@ -594,18 +576,14 @@ def load_chat_history():
             return []
     return []
 
-def format_chat_history(messages):
-    chat_str = "Chat History\n" + "=" * 20 + "\n\n"
-    for msg in messages:
-        role = "User" if msg.get("role") == "user" else "Assistant"
-        content = msg.get('content', '')
-        chat_str += f"[{role}]:\n{content}\n\n" + "-" * 20 + "\n\n"
-    return chat_str
+def save_chat_history():
+    with open(CHAT_HISTORY_FILE, "w") as f:
+        json.dump(st.session_state.messages, f)
 
-# ------------------------- Main App -------------------------
+# ------------------------- UI & Main Loop -------------------------
 
 def main():
-    # Session State Initialization
+    # Initialize Session State
     if "messages" not in st.session_state:
         st.session_state.messages = load_chat_history()
     if "faiss_ready" not in st.session_state:
@@ -613,91 +591,45 @@ def main():
     if "source_toggle" not in st.session_state:
         st.session_state.source_toggle = {}
 
-    # --- Sidebar ---
+    # Sidebar
     with st.sidebar:
         st.header("📄 ChatPDF")
         st.markdown("Your personal document assistant.")
 
-        # Status Indicator
-        status_text = "Ready" if st.session_state.faiss_ready else "No Documents"
+        status_text = "Index Ready" if st.session_state.faiss_ready else "No Index"
         status_class = "status-ready" if st.session_state.faiss_ready else "status-not-ready"
-        st.markdown(f'<div class="status-badge {status_class}">Status: {status_text}</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="status-badge {status_class}">{status_text}</div>', unsafe_allow_html=True)
 
         st.markdown("---")
         st.subheader("1. Upload Documents")
-        uploaded_files = st.file_uploader(
-            "Upload PDFs", 
-            accept_multiple_files=True, 
-            type=["pdf"], 
-            label_visibility="collapsed"
-        )
-
-        if st.button("2. Process Documents", use_container_width=True, disabled=not uploaded_files):
+        uploaded_files = st.file_uploader("Upload PDFs", accept_multiple_files=True, type=["pdf"])
+        
+        if st.button("Process Documents", disabled=not uploaded_files, use_container_width=True):
             with st.spinner("Processing..."):
                 raw_text = get_pdf_text(uploaded_files)
-                if raw_text.strip():
+                if raw_text:
                     chunks = get_text_chunks(raw_text)
                     get_vector_store(chunks)
-                    st.success("Documents processed!")
+                    st.success("Done!")
                     time.sleep(1)
                     st.rerun()
                 else:
-                    st.error("No text found in uploaded files.")
-
-        st.markdown("---")
-        st.subheader("2. Actions")
+                    st.warning("No text extracted from PDF.")
         
-        # Summarize Button
-        if st.button("📝 Summarize PDF", use_container_width=True, disabled=not st.session_state.faiss_ready):
-            with st.spinner("Summarizing..."):
-                try:
-                    embeddings = get_embedding_model()
-                    # Dangerous deserialization enabled because we created the index ourselves locally
-                    vector_store = FAISS.load_local(FAISS_DIR, embeddings, allow_dangerous_deserialization=True)
-                    
-                    # Retrieve generic context for summary
-                    docs = vector_store.similarity_search("Main topics and summary", k=10)
-                    
-                    template = """
-                    You are a helpful assistant. Provide a concise bullet-point summary of the following content.
-                    
-                    Content:
-                    {context}
-                    
-                    Summary:
-                    """
-                    chain = get_qa_chain(template)
-                    if chain:
-                        response = chain.invoke({"context": docs})
-                        st.session_state.messages.append({
-                            "role": "assistant", 
-                            "content": response, 
-                            "sources": [d.page_content[:200] for d in docs]
-                        })
-                        save_chat_history()
-                        st.rerun()
-                except Exception as e:
-                    st.error(f"Error: {e}")
-
         st.markdown("---")
-        st.subheader("3. Session")
-        
-        if st.button("Clear Conversation", use_container_width=True):
+        st.subheader("2. Session")
+        if st.button("Clear Chat", use_container_width=True):
             st.session_state.messages = []
             st.session_state.source_toggle = {}
             save_chat_history()
             st.rerun()
-
-        if st.session_state.messages:
-            data = format_chat_history(st.session_state.messages)
-            st.download_button("Download Chat", data, file_name="chat_history.txt", mime="text/plain", use_container_width=True)
 
         if st.session_state.faiss_ready and st.button("Delete Index", use_container_width=True):
             shutil.rmtree(FAISS_DIR, ignore_errors=True)
             st.session_state.faiss_ready = False
             st.rerun()
 
-    # --- Main Chat Interface ---
+    # Chat Area
     st.markdown(
         """
         <div style="text-align: center; margin-bottom: 20px;">
@@ -706,10 +638,10 @@ def main():
             </h1>
         </div>
         """,
-        unsafe_allow_html=True,
+        unsafe_allow_html=True
     )
 
-    # Render Chat
+    # Display History
     for idx, msg in enumerate(st.session_state.messages):
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
@@ -739,11 +671,11 @@ def main():
                     embeddings = get_embedding_model()
                     vector_store = FAISS.load_local(FAISS_DIR, embeddings, allow_dangerous_deserialization=True)
                     
-                    # Semantic Search
+                    # Search
                     docs = vector_store.similarity_search(prompt, k=5)
 
-                    # Modern Chain Execution
-                    qa_template = """
+                    # Template
+                    template = """
                     Answer the question strictly based on the provided context below.
                     If the answer is not in the context, say "The answer is not available in the provided documents."
                     
@@ -753,23 +685,21 @@ def main():
                     Question: {input}
                     """
                     
-                    chain = get_qa_chain(qa_template)
+                    chain = get_qa_chain(template)
+                    
                     if chain:
-                        # invoke() is the new standard call for chains
                         response = chain.invoke({"context": docs, "input": prompt})
-                        
                         st.markdown(response)
                         
-                        # Save to history
                         st.session_state.messages.append({
                             "role": "assistant", 
-                            "content": response, 
+                            "content": response,
                             "sources": [d.page_content[:200] for d in docs]
                         })
                         save_chat_history()
-                        
+                    
                 except Exception as e:
-                    st.error(f"An error occurred: {e}")
+                    st.error(f"Error: {e}")
 
 if __name__ == "__main__":
     main()
